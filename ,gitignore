@@ -1,0 +1,16 @@
+# Node & Backend
+node_modules/
+.env
+dist/
+coverage/
+
+# Flutter & Dart
+.dart_tool/
+build/
+.packages
+.pub-cache/
+.pub/
+
+# OS Files
+.DS_Store
+Thumbs.db

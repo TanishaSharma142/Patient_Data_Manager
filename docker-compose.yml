@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ivf_postgres
+    environment:
+      POSTGRES_USER: ivf_user
+      POSTGRES_PASSWORD: ivf_password
+      POSTGRES_DB: ivf_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ivf_user -d ivf_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: ivf_backend
+    environment:
+      DATABASE_URL: postgresql://ivf_user:ivf_password@postgres:5432/ivf_db
+      JWT_SECRET: "dev-secret-key-change-in-production"
+      ENCRYPTION_KEY: "5a44b91551d2d83c976312b1c8ee5b5a04eca4b6061c5da664c8f28c64fa18db"
+      BACKUP_EMAIL: "admin@example.com"
+      SMTP_HOST: "smtp.sendgrid.net"
+      SMTP_PORT: "587"
+      SMTP_USER: "apikey"
+      SMTP_PASS: "SG.your_key_here"
+      PANIC_PIN_HASH: "$2b$10$your_hash_here"
+      PORT: "3000"
+      NODE_ENV: "development"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: ivf_network

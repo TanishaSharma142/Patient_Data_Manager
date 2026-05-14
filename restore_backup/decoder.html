@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IVF Data Recovery</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #eef2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; width: 450px; }
+        h2 { color: #2c3e50; margin-top: 0; }
+        input[type="file"], input[type="password"] { margin: 15px 0; width: 90%; padding: 10px; }
+        .btn { background: #0d6efd; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
+        .btn:hover { background: #0b5ed7; }
+        #status { margin-top: 20px; font-weight: bold; font-size: 18px; }
+        #debug { text-align: left; background: #222; color: #0f0; padding: 15px; border-radius: 6px; font-family: monospace; font-size: 12px; margin-top: 20px; white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>IVF Data Recovery</h2>
+        <input type="file" id="fileInput" accept=".enc">
+        <input type="password" id="pinInput" placeholder="Enter PIN" maxlength="6">
+        <button class="btn" onclick="unlockData()">Unlock & Download CSV</button>
+        
+        <p id="status"></p>
+        <div id="debug">System Ready... Waiting for file.</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔒 OWNER CONFIGURATION ZONE
+        // ==========================================
+        
+        // 1. Enter the Owner's 6-digit PIN here
+        const CORRECT_PIN = "123456"; 
+        
+        // 2. Paste the exact ENCRYPTION_KEY from your backend's .env file here
+        const SERVER_KEY = "c690b758aa74768bb576620b56fe95843a1b3009b77b57b909cc585b50e5b462"; 
+        
+        // ==========================================
+
+        const debugBox = document.getElementById('debug');
+        function log(msg) { debugBox.innerText += "\n> " + msg; console.log(msg); }
+
+        function hexToBytes(hex) {
+            let bytes = new Uint8Array(Math.ceil(hex.length / 2));
+            for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+            return bytes;
+        }
+
+        async function unlockData() {
+            debugBox.innerText = "Starting decryption process...";
+            const pin = document.getElementById('pinInput').value;
+            const fileInput = document.getElementById('fileInput').files[0];
+            const status = document.getElementById('status');
+
+            if (!fileInput) return log("ERROR: No file selected.");
+            if (pin !== CORRECT_PIN) {
+                status.style.color = "red"; status.innerText = "Incorrect PIN!";
+                return log("ERROR: Incorrect PIN.");
+            }
+
+            // 1. Check the Key
+            const cleanKey = SERVER_KEY.trim();
+            //log(`Checking Key: Length is ${cleanKey.length} characters.`);
+            if (cleanKey.length !== 64) {
+                status.style.color = "red"; status.innerText = "Key Error!";
+                return log("CRITICAL ERROR: Your SERVER_KEY must be exactly 64 characters long! Check for accidental spaces.");
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    // 2. Read and clean the Base64 file
+                    let base64String = e.target.result.replace(/\s/g, ''); // Removes ALL spaces/newlines
+                    //log(`File loaded. Base64 length: ${base64String.length}`);
+
+                    const binaryStr = atob(base64String);
+                    const combined = new Uint8Array(binaryStr.length);
+                    for(let i = 0; i < binaryStr.length; i++) combined[i] = binaryStr.charCodeAt(i);
+                    //log(`Converted to binary. Total size: ${combined.length} bytes.`);
+
+                    if (combined.length < 32) throw new Error("File is too small to contain valid encrypted data.");
+
+                    // 3. Slice the data exactly how Node.js packed it
+                    const iv = combined.slice(0, 16);
+                    const authTag = combined.slice(16, 32);
+                    const ciphertext = combined.slice(32);
+                    //log(`Spliced: IV(16), AuthTag(16), Ciphertext(${ciphertext.length})`);
+
+                    // 4. WebCrypto API requires the AuthTag appended to the Ciphertext
+                    const webCryptoData = new Uint8Array(ciphertext.length + authTag.length);
+                    webCryptoData.set(ciphertext, 0);
+                    webCryptoData.set(authTag, ciphertext.length);
+
+                    // 5. Import Key
+                    //log("Importing key to WebCrypto Engine...");
+                    const keyBytes = hexToBytes(cleanKey);
+                    const cryptoKey = await window.crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+
+                    // 6. Decrypt
+                    //log("Attempting AES-GCM Decryption...");
+                    const decryptedBuffer = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, cryptoKey, webCryptoData);
+                    
+                    //log("SUCCESS! Decryption mathematically valid.");
+                    const decryptedStr = new TextDecoder().decode(decryptedBuffer);
+                    
+                    // 7. Download the CSV instantly
+                    log("Data is ready. Triggering Excel download...");
+                    const blob = new Blob([decryptedStr], { type: "text/csv" });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = "UNLOCKED_Patient_Data.csv";
+                    link.click();
+
+                    status.style.color = "green"; 
+                    status.innerText = "✅ Successfully unlocked! Check your downloads.";
+                } catch (error) {
+                    status.style.color = "red"; status.innerText = "❌ Decryption Failed!";
+                    log(`CRITICAL ERROR: ${error.name} - ${error.message}`);
+                    if (error.name === "OperationError") log("HINT: OperationError means the mathematics failed. Either the SERVER_KEY is wrong, or the file was modified/corrupted.");
+                }
+            };
+            reader.readAsText(fileInput);
+        }
+    </script>
+</body>
+</html>
