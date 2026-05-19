@@ -1,7 +1,7 @@
 {
-  "name": "ivf-backend",
+  "name": "backend",
   "version": "1.0.0",
-  "description": "IVF Patient Data Management Backend",
+  "description": "Patient Data Management Backend",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node src/index.ts",
