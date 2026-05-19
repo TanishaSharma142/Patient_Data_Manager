@@ -14,3 +14,9 @@ build/
 # OS Files
 .DS_Store
 Thumbs.db
+
+backend/node_modules/
+backend/dist/
+backend/.env
+*.env
+flutter_app/build/
