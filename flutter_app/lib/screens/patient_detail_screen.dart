@@ -548,44 +548,51 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
   }
 
   Future<void> _saveChanges() async {
-    final provider = Provider.of<PatientProvider>(context, listen: false);
-    final userRole = Provider.of<AuthProvider>(context, listen: false).user?.role ?? UserRole.secretary;
+  final provider = Provider.of<PatientProvider>(context, listen: false);
+  final userRole = Provider.of<AuthProvider>(context, listen: false).user?.role ?? UserRole.secretary;
 
-    final updates = <String, dynamic>{};
-    
-    if (userRole == UserRole.owner) {
-      // Owner can update all fields
-      if (_dateController.text != (_patient?.date ?? '')) {
-        updates['date'] = _dateController.text;
-      }
-      if (_nameController.text != (_patient?.patientName ?? '')) {
-        updates['patientName'] = _nameController.text;
-      }
-      if (_phoneController.text != (_patient?.phone ?? '')) {
-        updates['countryCode'] = _selectedCountryCode;
-        updates['phone'] = _phoneController.text;
-      }
-      if (_addressController.text != (_patient?.address ?? '')) {
-        updates['address'] = _addressController.text;
-      }
-      if (_packageController.text != (_patient?.package ?? '')) {
-        updates['package'] = _packageController.text;
-      }
-      if (_bankController.text != (_patient?.bank ?? '')) {
-        updates['bank'] = _bankController.text;
-      }
-    } else if (userRole == UserRole.accountant) {
-      // Accountant can only update cash entries
-      if (_cashEntries.isNotEmpty) {
-        updates['cashEntries'] = _cashEntries
-            .map((entry) => {
-                  'entryDate': entry['entryDate'],
-                  'amount': entry['amount'],
-                })
-            .toList();
-      }
+  final updates = <String, dynamic>{};
+  
+  if (userRole == UserRole.owner) {
+    if (_dateController.text != (_patient?.date ?? '')) {
+      updates['date'] = _dateController.text;
+    }
+    if (_nameController.text != (_patient?.patientName ?? '')) {
+      updates['patientName'] = _nameController.text;
+    }
+    if (_phoneController.text != (_patient?.phone ?? '')) {
+      updates['countryCode'] = _selectedCountryCode;
+      updates['phone'] = _phoneController.text;
+    }
+    if (_addressController.text != (_patient?.address ?? '')) {
+      updates['address'] = _addressController.text;
+    }
+    if (_packageController.text != (_patient?.package ?? '')) {
+      updates['package'] = _packageController.text;
+    }
+    if (_bankController.text != (_patient?.bank ?? '')) {
+      updates['bank'] = _bankController.text;
     }
 
+    // ✅ ADD THIS — always send cashEntries for owner so adds AND deletes persist
+    updates['cashEntries'] = _cashEntries
+        .map((entry) => {
+              'entryDate': entry['entryDate'],
+              'amount': entry['amount'],
+            })
+        .toList();
+
+  } else if (userRole == UserRole.accountant) {
+    // ✅ ALSO FIX THIS — send even if empty, so deletions persist
+    updates['cashEntries'] = _cashEntries
+        .map((entry) => {
+              'entryDate': entry['entryDate'],
+              'amount': entry['amount'],
+            })
+        .toList();
+  }
+
+  // rest of the method unchanged...
     if (updates.isEmpty) {
       setState(() {
         _isEditing = false;
