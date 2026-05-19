@@ -30,21 +30,38 @@ model User {
 
 model Patient {
   id            String   @id @default(cuid())
-  
-  // Encrypted fields (stored as base64 encrypted data)
-  dateEncrypted      String   // Appointment/treatment date
-  patientNameEncrypted String
-  phoneEncrypted     String
-  addressEncrypted   String
-  packageEncrypted   String   // IVF package name
-  cashEncrypted      String   // Payment in cash
-  bankEncrypted      String   // Payment via bank
-  balanceEncrypted   String   // Outstanding amount
-  
+
+  // Patient metadata and identifiers
+  date           DateTime?
+  patientNameEncrypted String?
+  countryCodeEncrypted String?
+  phoneEncrypted     String?
+  addressEncrypted   String?
+
+  // Financial fields stored as numeric values
+  packageAmount  Decimal?
+  cashTotal      Decimal?
+  bankAmount     Decimal?
+  balanceAmount  Decimal?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  cashEntries    CashEntry[]
+
   @@index([createdAt])
+}
+
+model CashEntry {
+  id          String   @id @default(cuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  entryDate   DateTime
+  amount      Decimal
+  createdAt   DateTime @default(now())
+
+  @@index([patientId])
+  @@index([entryDate])
 }
 
 model AuditLog {

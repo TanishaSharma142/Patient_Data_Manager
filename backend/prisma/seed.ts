@@ -10,6 +10,7 @@ async function main() {
     const ownerPasswordHash = await bcryptjs.hash('owner123', 10);
     const accountantPasswordHash = await bcryptjs.hash('accountant123', 10);
     const secretaryPasswordHash = await bcryptjs.hash('secretary123', 10);
+    const owner2PasswordHash = await bcryptjs.hash('owner543', 10);  //add newuser
 
     // Hash the panic PIN (6 digits) - default: 123456
     const panicPinHash = await bcryptjs.hash('123456', 10);
@@ -18,7 +19,7 @@ async function main() {
     await prisma.user.deleteMany();
     console.log('Cleared existing users');
 
-    // Create the three users
+    // Create the four users
     const owner = await prisma.user.create({
       data: {
         username: 'rakesh',
@@ -29,6 +30,17 @@ async function main() {
       }
     });
     console.log('Created OWNER user:', owner.username);
+
+    const owner2 = await prisma.user.create({
+      data: {
+        username: 'owner2',
+        email: 'owner2@example.com',
+        passwordHash: owner2PasswordHash,
+        role: 'OWNER' as UserRole,
+        panicPinHash: panicPinHash
+      }
+    });
+    console.log('Created OWNER user:', owner2.username);
 
     const accountant = await prisma.user.create({
       data: {

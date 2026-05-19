@@ -145,7 +145,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                   itemBuilder: (context, index) {
                     return _PatientCard(
                       patient: patients[index],
-                      userRole: authProvider.user!.role,
+                      userRole: authProvider.user?.role ?? UserRole.secretary,
                     );
                   },
                 );
@@ -154,7 +154,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
           ),
         ],
       ),
-      floatingActionButton: authProvider.user?.role != UserRole.accountant
+      floatingActionButton: (authProvider.user?.role ?? UserRole.secretary) != UserRole.accountant
           ? FloatingActionButton(
               backgroundColor: Colors.blue[600],
               onPressed: () async {

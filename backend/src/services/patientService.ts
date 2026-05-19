@@ -1,71 +1,133 @@
 // src/services/patientService.ts
 import { PrismaClient, Patient } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { getEncryption } from '../utils/encryption';
 import { JWTPayload } from '../utils/jwt';
 
 const prisma = new PrismaClient();
 
+export interface CashEntryInput {
+  entryDate?: string;
+  amount?: string;
+}
+
 export interface PatientData {
   date?: string;
   patientName?: string;
+  countryCode?: string;
   phone?: string;
   address?: string;
   package?: string;
   cash?: string;
   bank?: string;
   balance?: string;
+  cashEntries?: CashEntryInput[];
+}
+
+export interface DecryptedCashEntry {
+  id: string;
+  entryDate: string;
+  amount: string;
 }
 
 export interface DecryptedPatient {
   id: string;
   date?: string;
   patientName?: string;
+  countryCode?: string;
   phone?: string;
   address?: string;
   package?: string;
   cash?: string;
   bank?: string;
   balance?: string;
+  cashEntries?: DecryptedCashEntry[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+type PatientWithCashEntries = Patient & {
+  cashEntries?: {
+    id: string;
+    entryDate: Date;
+    amount: Decimal;
+  }[];
+};
+
+function parseDecimal(value: string | number | undefined | null): Decimal | null {
+  if (value === undefined || value === null) return null;
+  const normalized = typeof value === 'string' ? value.trim() : value.toString();
+  if (normalized === '') return null;
+  try {
+    return new Decimal(normalized);
+  } catch {
+    return null;
+  }
+}
+
+function formatDecimal(value: Decimal | null | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.toString();
 }
 
 /**
  * Decrypt a patient record
  */
-function decryptPatient(patient: Patient): DecryptedPatient {
+function decryptPatient(patient: PatientWithCashEntries): DecryptedPatient {
   const encryption = getEncryption();
-  
+
+  // safeDecrypt: if the stored value is empty/null, return undefined instead
+  // of trying to decrypt an empty string (which causes "Invalid IV" crash)
+  // Also catches decryption errors and returns undefined instead of throwing
+  const safeDecrypt = (value: string | null | undefined): string | undefined => {
+    if (!value || value.trim() === '') return undefined;
+    try {
+      return encryption.decrypt(value);
+    } catch (error) {
+      console.error('Decryption error for field:', (error as Error).message);
+      return undefined;
+    }
+  };
+
   return {
     id: patient.id,
-    date: encryption.decrypt(patient.dateEncrypted),
-    patientName: encryption.decrypt(patient.patientNameEncrypted),
-    phone: encryption.decrypt(patient.phoneEncrypted),
-    address: encryption.decrypt(patient.addressEncrypted),
-    package: encryption.decrypt(patient.packageEncrypted),
-    cash: encryption.decrypt(patient.cashEncrypted),
-    bank: encryption.decrypt(patient.bankEncrypted),
-    balance: encryption.decrypt(patient.balanceEncrypted),
+    date: patient.date ? patient.date.toISOString() : undefined,
+    patientName: safeDecrypt(patient.patientNameEncrypted),
+    countryCode: safeDecrypt(patient.countryCodeEncrypted),
+    phone: safeDecrypt(patient.phoneEncrypted),
+    address: safeDecrypt(patient.addressEncrypted),
+    package: formatDecimal(patient.packageAmount),
+    cash: formatDecimal(patient.cashTotal),
+    bank: formatDecimal(patient.bankAmount),
+    balance: formatDecimal(patient.balanceAmount),
+    cashEntries: patient.cashEntries?.map(entry => ({
+      id: entry.id,
+      entryDate: entry.entryDate.toISOString(),
+      amount: entry.amount.toString(),
+    })),
     createdAt: patient.createdAt,
     updatedAt: patient.updatedAt
   };
 }
 
 /**
- * Encrypt patient data for storage
+ * Encrypt patient string fields for storage
  */
-function encryptPatientData(data: PatientData) {
+function encryptPatientStrings(data: PatientData) {
   const encryption = getEncryption();
-  
+
+  // safeEncrypt: store NULL in DB for missing fields, never an empty string.
+  // Empty string '' cannot be decrypted (no IV) and causes the crash.
+  const safeEncrypt = (value: string | undefined | null): string | null => {
+    if (value === undefined || value === null || value.trim() === '') return null;
+    return encryption.encrypt(value);
+  };
+
   return {
-    dateEncrypted: data.date ? encryption.encrypt(data.date) : '',
-    patientNameEncrypted: data.patientName ? encryption.encrypt(data.patientName) : '',
-    phoneEncrypted: data.phone ? encryption.encrypt(data.phone) : '',
-    addressEncrypted: data.address ? encryption.encrypt(data.address) : '',
-    packageEncrypted: data.package ? encryption.encrypt(data.package) : '',
-    cashEncrypted: data.cash ? encryption.encrypt(data.cash) : '',
-    bankEncrypted: data.bank ? encryption.encrypt(data.bank) : '',
-    balanceEncrypted: data.balance ? encryption.encrypt(data.balance) : ''
+    patientNameEncrypted: safeEncrypt(data.patientName),
+    countryCodeEncrypted: safeEncrypt(data.countryCode),
+    phoneEncrypted:       safeEncrypt(data.phone),
+    addressEncrypted:     safeEncrypt(data.address),
   };
 }
 
@@ -93,7 +155,8 @@ function filterPatientByRole(patient: DecryptedPatient, role: string): Partial<D
         package: patient.package,
         cash: patient.cash,
         bank: patient.bank,
-        balance: patient.balance
+        balance: patient.balance,
+        cashEntries: patient.cashEntries
       };
     
     case 'SECRETARY':
@@ -102,6 +165,7 @@ function filterPatientByRole(patient: DecryptedPatient, role: string): Partial<D
         ...filtered,
         date: patient.date,
         patientName: patient.patientName,
+        countryCode: patient.countryCode,
         phone: patient.phone,
         address: patient.address,
         package: patient.package
@@ -116,12 +180,36 @@ function filterPatientByRole(patient: DecryptedPatient, role: string): Partial<D
  * Create a new patient record
  */
 export async function createPatient(data: PatientData): Promise<DecryptedPatient> {
-  const encrypted = encryptPatientData(data);
-  
+  const encrypted = encryptPatientStrings(data);
+
+  const parsedPackageAmount = parseDecimal(data.package) ?? new Decimal(0);
+  const parsedBankAmount = parseDecimal(data.bank) ?? new Decimal(0);
+
+  const cashEntries = (data.cashEntries ?? []).map(entry => ({
+    entryDate: entry.entryDate ? new Date(entry.entryDate) : new Date(),
+    amount: parseDecimal(entry.amount) ?? new Decimal(0),
+  }));
+
+  const cashTotal = cashEntries.reduce((sum, entry) => sum.plus(entry.amount), new Decimal(0));
+  const resolvedCashTotal = cashEntries.length > 0
+    ? cashTotal
+    : parseDecimal(data.cash) ?? new Decimal(0);
+
   const patient = await prisma.patient.create({
-    data: encrypted
+    data: {
+      ...encrypted,
+      date: data.date ? new Date(data.date) : undefined,
+      packageAmount: parsedPackageAmount,
+      bankAmount: parsedBankAmount,
+      cashTotal: resolvedCashTotal,
+      balanceAmount: parsedPackageAmount.minus(resolvedCashTotal.plus(parsedBankAmount)),
+      cashEntries: {
+        create: cashEntries
+      }
+    },
+    include: { cashEntries: true }
   });
-  
+
   return decryptPatient(patient);
 }
 
@@ -129,28 +217,60 @@ export async function createPatient(data: PatientData): Promise<DecryptedPatient
  * Get a patient by ID (with role-based filtering)
  */
 export async function getPatientById(id: string, userRole: string): Promise<Partial<DecryptedPatient> | null> {
-  const patient = await prisma.patient.findUnique({
-    where: { id }
-  });
+  try {
+    const patient = await prisma.patient.findUnique({
+      where: { id },
+      include: { cashEntries: true }
+    });
 
-  if (!patient) return null;
+    if (!patient) return null;
 
-  const decrypted = decryptPatient(patient);
-  return filterPatientByRole(decrypted, userRole);
+    try {
+      const decrypted = decryptPatient(patient);
+      return filterPatientByRole(decrypted, userRole);
+    } catch (error) {
+      console.error('Error decrypting patient:', id, (error as Error).message);
+      // Return basic patient info without encrypted fields in case of decryption error
+      return {
+        id: patient.id,
+        createdAt: patient.createdAt,
+        updatedAt: patient.updatedAt
+      };
+    }
+  } catch (error) {
+    console.error('Error fetching patient:', error);
+    throw error;
+  }
 }
 
 /**
  * Get all patients (with role-based filtering)
  */
 export async function getAllPatients(userRole: string): Promise<Partial<DecryptedPatient>[]> {
-  const patients = await prisma.patient.findMany({
-    orderBy: { createdAt: 'desc' }
-  });
+  try {
+    const patients = await prisma.patient.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { cashEntries: true }
+    });
 
-  return patients.map(patient => {
-    const decrypted = decryptPatient(patient);
-    return filterPatientByRole(decrypted, userRole);
-  });
+    return patients.map(patient => {
+      try {
+        const decrypted = decryptPatient(patient);
+        return filterPatientByRole(decrypted, userRole);
+      } catch (error) {
+        console.error('Error processing patient:', patient.id, (error as Error).message);
+        // Return basic patient info without encrypted fields
+        return {
+          id: patient.id,
+          createdAt: patient.createdAt,
+          updatedAt: patient.updatedAt
+        };
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching patients:', error);
+    throw error;
+  }
 }
 
 /**
@@ -162,7 +282,8 @@ export async function updatePatient(
   userRole: string
 ): Promise<Partial<DecryptedPatient> | null> {
   const patient = await prisma.patient.findUnique({
-    where: { id }
+    where: { id },
+    include: { cashEntries: true }
   });
 
   if (!patient) return null;
@@ -170,21 +291,52 @@ export async function updatePatient(
   // Validate that user can update requested fields
   validateUpdatePermissions(data, userRole);
 
-  // Only encrypt fields that are provided
+  const enc = getEncryption();
+  const safeEncrypt = (value: string | undefined | null): string | null => {
+    if (value === undefined || value === null || value.trim() === '') return null;
+    return enc.encrypt(value);
+  };
+
   const updateData: any = {};
-  
-  if (data.date !== undefined) updateData.dateEncrypted = getEncryption().encrypt(data.date);
-  if (data.patientName !== undefined) updateData.patientNameEncrypted = getEncryption().encrypt(data.patientName);
-  if (data.phone !== undefined) updateData.phoneEncrypted = getEncryption().encrypt(data.phone);
-  if (data.address !== undefined) updateData.addressEncrypted = getEncryption().encrypt(data.address);
-  if (data.package !== undefined) updateData.packageEncrypted = getEncryption().encrypt(data.package);
-  if (data.cash !== undefined) updateData.cashEncrypted = getEncryption().encrypt(data.cash);
-  if (data.bank !== undefined) updateData.bankEncrypted = getEncryption().encrypt(data.bank);
-  if (data.balance !== undefined) updateData.balanceEncrypted = getEncryption().encrypt(data.balance);
+  if (data.date !== undefined)        updateData.date = data.date ? new Date(data.date) : null;
+  if (data.patientName !== undefined) updateData.patientNameEncrypted = safeEncrypt(data.patientName);
+  if (data.countryCode !== undefined) updateData.countryCodeEncrypted = safeEncrypt(data.countryCode);
+  if (data.phone !== undefined)       updateData.phoneEncrypted       = safeEncrypt(data.phone);
+  if (data.address !== undefined)     updateData.addressEncrypted     = safeEncrypt(data.address);
+
+  const packageAmount = data.package !== undefined ? parseDecimal(data.package) : patient.packageAmount;
+  const bankAmount = data.bank !== undefined ? parseDecimal(data.bank) : patient.bankAmount;
+
+  if (data.package !== undefined) updateData.packageAmount = packageAmount;
+  if (data.bank !== undefined) updateData.bankAmount = bankAmount;
+
+  let cashTotal = patient.cashTotal ?? new Decimal(0);
+  if (data.cashEntries !== undefined) {
+    const cashEntries = data.cashEntries.map(entry => ({
+      entryDate: entry.entryDate ? new Date(entry.entryDate) : new Date(),
+      amount: parseDecimal(entry.amount) ?? new Decimal(0),
+    }));
+    cashTotal = cashEntries.reduce((sum, entry) => sum.plus(entry.amount), new Decimal(0));
+    updateData.cashTotal = cashTotal;
+    updateData.cashEntries = {
+      deleteMany: {},
+      create: cashEntries
+    };
+  }
+
+  if (data.cash !== undefined) {
+    cashTotal = parseDecimal(data.cash) ?? cashTotal;
+    updateData.cashTotal = cashTotal;
+  }
+
+  const finalPackage = packageAmount ?? new Decimal(0);
+  const finalBank = bankAmount ?? new Decimal(0);
+  updateData.balanceAmount = finalPackage.minus(cashTotal.plus(finalBank));
 
   const updated = await prisma.patient.update({
     where: { id },
-    data: updateData
+    data: updateData,
+    include: { cashEntries: true }
   });
 
   const decrypted = decryptPatient(updated);
@@ -195,6 +347,10 @@ export async function updatePatient(
  * Delete a patient record
  */
 export async function deletePatient(id: string): Promise<boolean> {
+  await prisma.cashEntry.deleteMany({
+    where: { patientId: id }
+  });
+
   const result = await prisma.patient.delete({
     where: { id }
   });
@@ -205,8 +361,11 @@ export async function deletePatient(id: string): Promise<boolean> {
  * Delete all patients (for panic wipe)
  */
 export async function deleteAllPatients(): Promise<number> {
-  const result = await prisma.patient.deleteMany();
-  return result.count;
+  return await prisma.$transaction(async tx => {
+    await tx.cashEntry.deleteMany();
+    const result = await tx.patient.deleteMany();
+    return result.count;
+  });
 }
 
 /**
@@ -214,7 +373,8 @@ export async function deleteAllPatients(): Promise<number> {
  */
 export async function getAllPatientsForBackup(): Promise<DecryptedPatient[]> {
   const patients = await prisma.patient.findMany({
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    include: { cashEntries: true }
   });
 
   return patients.map(decryptPatient);
@@ -226,7 +386,7 @@ export async function getAllPatientsForBackup(): Promise<DecryptedPatient[]> {
 function validateUpdatePermissions(data: Partial<PatientData>, role: string): void {
   if (role === 'ACCOUNTANT') {
     // Accountant can only update financial fields and package
-    const allowedFields = ['package', 'cash', 'bank', 'balance'];
+    const allowedFields = ['package', 'cash', 'bank', 'balance', 'cashEntries'];
     const requestedFields = Object.keys(data);
     
     for (const field of requestedFields) {
@@ -236,7 +396,7 @@ function validateUpdatePermissions(data: Partial<PatientData>, role: string): vo
     }
   } else if (role === 'SECRETARY') {
     // Secretary can only update non-financial fields
-    const allowedFields = ['date', 'patientName', 'phone', 'address', 'package'];
+    const allowedFields = ['date', 'patientName', 'countryCode', 'phone', 'address', 'package'];
     const requestedFields = Object.keys(data);
     
     for (const field of requestedFields) {

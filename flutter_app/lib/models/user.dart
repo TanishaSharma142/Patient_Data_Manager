@@ -16,11 +16,22 @@ class User {
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
+    // Safely extract each field with type checking
+    final id = (json['id'] as String?)?.trim() ?? '';
+    final username = (json['username'] as String?)?.trim() ?? '';
+    final email = (json['email'] as String?)?.trim() ?? '';
+    final roleString = (json['role'] as String?)?.trim().toUpperCase() ?? 'OWNER';
+    
+    // Validate required fields
+    if (id.isEmpty || username.isEmpty) {
+      throw FormatException('User.fromJson: missing required fields (id, username)');
+    }
+    
     return User(
-      id: json['id'] ?? '',
-      username: json['username'] ?? '',
-      email: json['email'] ?? '',
-      role: _parseRole(json['role'] ?? 'OWNER'),
+      id: id,
+      username: username,
+      email: email,
+      role: _parseRole(roleString),
     );
   }
 

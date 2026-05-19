@@ -79,8 +79,15 @@ export async function getAuditLogsByAction(
     include: { user: true }
   });
 
+  
+
   return logs.map(log => ({
     ...log,
     details: log.details ? JSON.parse(log.details) : null
   }));
+}
+
+export async function deleteAllAuditLogs(): Promise<{ count: number }> {
+  const result = await prisma.auditLog.deleteMany();
+  return { count: result.count };
 }

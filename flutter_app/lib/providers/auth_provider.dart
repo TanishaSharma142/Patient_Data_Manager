@@ -27,12 +27,24 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       final token = await _storageService.getToken();
-      if (token != null) {
+      if (token != null && token.isNotEmpty) {
         _apiService.setToken(token);
         // Verify token is still valid
-        final result = await _apiService.verifyToken();
-        _user = User.fromJson(result['user']);
-        _isAuthenticated = true;
+        try {
+          final result = await _apiService.verifyToken();
+          
+          // Safely extract user data
+          final userMap = result['user'];
+          if (userMap is! Map<String, dynamic>) {
+            throw 'Invalid user data in verify response';
+          }
+          
+          _user = User.fromJson(userMap);
+          _isAuthenticated = true;
+        } catch (e) {
+          print('Token verification failed: $e');
+          await logout();
+        }
       }
     } catch (e) {
       print('Initialization error: $e');
@@ -52,21 +64,33 @@ class AuthProvider extends ChangeNotifier {
     try {
       final result = await _apiService.login(username, password);
 
-      if (result['token'] != null) {
-        final token = result['token'];
-        _user = User.fromJson(result['user']);
-
-        // Save token securely
-        await _storageService.saveToken(token);
-        _apiService.setToken(token);
-
-        _isAuthenticated = true;
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      } else {
-        throw 'No token received';
+      // Validate token exists and is a string
+      final token = result['token'];
+      if (token is! String || token.isEmpty) {
+        throw 'Invalid token received from server';
       }
+
+      // Validate user data exists and is a map
+      final userMap = result['user'];
+      if (userMap is! Map<String, dynamic>) {
+        throw 'Invalid user data received from server';
+      }
+
+      // Parse user safely
+      try {
+        _user = User.fromJson(userMap);
+      } catch (e) {
+        throw 'Failed to parse user data: $e';
+      }
+
+      // Save token securely
+      await _storageService.saveToken(token);
+      _apiService.setToken(token);
+
+      _isAuthenticated = true;
+      _isLoading = false;
+      notifyListeners();
+      return true;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;

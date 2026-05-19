@@ -29,7 +29,7 @@ router.post('/', authMiddleware, requireRole('OWNER', 'SECRETARY'), async (req: 
 
     // Secretary cannot submit financial data
     if (req.user.role === 'SECRETARY') {
-      if (data.cash || data.bank || data.balance) {
+      if (data.cash || data.bank || data.balance || (data.cashEntries && data.cashEntries.length > 0)) {
         res.status(403).json({ error: 'Secretary cannot create financial fields' });
         return;
       }

@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
-                    Icons.health_and_safety,
+                    Icons.panorama_fish_eye,
                     size: 48,
                     color: Colors.white,
                   ),
@@ -52,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 // Title
                 const Text(
-                  'IVF Patient Manager',
+                  'Why here',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -63,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 // Subtitle
                 Text(
-                  'Secure Patient Data Management',
+                  'explore',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[600],

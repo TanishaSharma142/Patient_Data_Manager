@@ -120,8 +120,7 @@ IVF/
 - ✅ 6-digit PIN verification (bcryptjs hashed)
 - ✅ Pre-wipe encrypted backup generation
 - ✅ SMTP email sending before deletion
-- ✅ Hard delete of all patient records (only after email success)
-- ✅ Immutable audit logging of panic wipe event
+- ✅ Hard delete of all patient records and activity/audit logs (only after email success)
 - ✅ Abort mechanism if email fails (no data deleted)
 
 **Automated Backups:**
@@ -181,8 +180,8 @@ IVF/
 
 **Role-Based UI:**
 - ✅ Owner: Full access to all screens
-- ✅ Accountant: No financial display/edit in UI
-- ✅ Secretary: No financial display/edit in UI
+- ✅ Accountant: Can view patient name, date, package, cash, bank, balance and add dated cash entries only
+- ✅ Secretary: Can create new patients only and cannot edit existing patient records
 - ✅ Proper field masking on all screens
 - ✅ Permission-appropriate forms
 
@@ -262,10 +261,10 @@ Can Perform: Backup, Manual deletion
 
 ### Accountant
 ```
-Can View:    Package, Cash, Bank, Balance, Patient Name
-Cannot View: Phone, Address, Date
-Can Edit:    Package, Cash, Bank, Balance
-Cannot Edit: Phone, Address, Date
+Can View:    Patient Name, Date, Package, Cash, Bank, Balance
+Cannot View: Phone, Address
+Can Edit:    Add dated cash entries only
+Cannot Edit: Patient details or financial fields directly
 Cannot:      Create new patients, Delete records, Panic wipe
 ```
 
@@ -273,9 +272,9 @@ Cannot:      Create new patients, Delete records, Panic wipe
 ```
 Can View:    Date, Patient Name, Phone, Address, Package
 Cannot View: Cash, Bank, Balance
-Can Edit:    Date, Patient Name, Phone, Address, Package
-Cannot Edit: Cash, Bank, Balance
-Cannot:      Create new patients, Delete records, Panic wipe
+Can Edit:    Create new patient records only
+Cannot Edit: Existing patient records
+Cannot:      Delete records, Panic wipe
 ```
 
 ---

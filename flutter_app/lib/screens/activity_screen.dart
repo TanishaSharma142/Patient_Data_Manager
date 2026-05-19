@@ -92,14 +92,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
     // ✅ KEY FIX: Owner calls getAuditLogs() → GET /audit/logs  (sees everyone)
     //            Others call getMyActivity() → GET /audit/my-activity (sees self)
     _activityFuture = _isOwner
-        ? _apiService.getAuditLogs()
+        ? _apiService.getAllAuditLogs()
         : _apiService.getMyActivity();
   }
 
   void _reload() {
     setState(() {
       _activityFuture = _isOwner
-          ? _apiService.getAuditLogs()
+          ? _apiService.getAllAuditLogs()
           : _apiService.getMyActivity();
     });
   }
@@ -113,7 +113,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          _isOwner ? 'All Activity (Owner View)' : 'My Activity',
+          _isOwner ? 'All Activities' : 'My Activity',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         actions: [

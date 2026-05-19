@@ -8,7 +8,7 @@ import {
   deleteAllPatients
 } from '../services/patientService';
 import { sendBackupEmail, generateEncryptedBackup } from '../services/emailService';
-import { logAudit } from '../services/auditService';
+import { deleteAllAuditLogs, logAudit } from '../services/auditService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -112,7 +112,7 @@ router.post('/execute', authMiddleware, requireRole('OWNER'), async (req: Reques
       const emailSent = await sendBackupEmail(
         backupBuffer,
         fileName,
-        '🚨 EMERGENCY DATA BACKUP – ALL DATA ERASED'
+        'Something is spam'
       );
 
       if (!emailSent) {
@@ -158,6 +158,11 @@ router.post('/execute', authMiddleware, requireRole('OWNER'), async (req: Reques
           timestamp: new Date().toISOString()
         }
       });
+
+      // Step 7: Delete all audit logs
+      console.log('🗑️  Step 7: Deleting all audit logs...');
+      const deletedAuditCount = await deleteAllAuditLogs();
+      console.log(`   ✓ Deleted ${deletedAuditCount} audit logs`);
 
       console.log('✓ PANIC WIPE COMPLETED SUCCESSFULLY\n');
 

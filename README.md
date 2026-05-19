@@ -77,7 +77,7 @@ IVF/
 ### Phase 3: Flutter Frontend ✅
 - ✅ Login screen with demo credentials
 - ✅ Patient list with search functionality
-- ✅ Role-based column filtering (Secretary can't see cash, Accountant can't see phone)
+- ✅ Role-based column filtering and permissions: Accountant can view patient name, date, package, cash, bank, balance and add dated cash entries only; Secretary can create new patients but cannot edit existing patients
 - ✅ Patient detail view with role-restricted editing
 - ✅ Add patient form with field permissions
 - ✅ Panic wipe screen (Owner only) with 6-digit PIN entry
@@ -92,8 +92,8 @@ IVF/
 | Role | Access |
 |------|--------|
 | **Owner** (rakesh) | Full access to all fields. Can perform panic wipe. Can view audit logs. |
-| **Accountant** | Financial fields only: Package, Cash, Bank, Balance + Patient Name (no Phone/Address) |
-| **Secretary** | Non-financial fields: Date, Patient Name, Phone, Address, Package (no financial fields) |
+| **Accountant** | Views patient name, date, package, cash, bank, balance; can add dated cash entries only (no edits to existing patient fields). |
+| **Secretary** | Views date, patient name, phone, address, package; can create new patients only and cannot edit existing patient records. |
 
 ## Encrypted Fields
 
@@ -132,7 +132,7 @@ Edit `.env` with your configuration:
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/ivf_db"
 JWT_SECRET="your-super-secret-jwt-key"
-ENCRYPTION_KEY="5a44b91551d2d83c976312b1c8ee5b5a04eca4b6061c5da664c8f28c64fa18db"
+ENCRYPTION_KEY="enter you encrypted key here"
 BACKUP_EMAIL="admin@example.com"
 SMTP_HOST="smtp.sendgrid.net"
 SMTP_PORT=587
@@ -224,7 +224,7 @@ flutter run -d iPhone
 
 ### Panic Wipe
 - `GET /api/panic-wipe/status` - Check if owner can perform panic wipe
-- `POST /api/panic-wipe/execute` - Execute panic wipe with PIN
+- `POST /api/panic-wipe/execute` - Execute panic wipe with PIN; deletes all patient data and activity logs
 
 ### Audit
 - `GET /api/audit/logs` - Get all audit logs (Owner only)
@@ -268,7 +268,8 @@ Secretary:
 - **Two-step process:**
   1. Create encrypted backup and email to configured address
   2. Only after successful email, delete all records
-- Immutable audit log of wipe event
+- Immutable audit log of wipe event until the final wipe step
+- Panic wipe also removes all activity/audit logs
 - No recovery option (by design)
 
 ### Data Protection

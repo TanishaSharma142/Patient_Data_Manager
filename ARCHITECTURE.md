@@ -242,10 +242,12 @@ Database Retrieval:
            │
            ▼
 ┌──────────────────────────────────┐
-│  Role-based Field Filtering      │
-│  Owner: All fields               │
-│  Accountant: Financials only     │
-│  Secretary: Non-financials only  │
+│  Role-based Field Filtering          │
+│  Owner: All fields                   │
+│  Accountant: Patient name, date,     │
+│  package, cash, bank, balance        │
+│  Secretary: Date, patient name,      │
+│  phone, address, package             │
 └──────────┬──────────────────────┘
            │
            ▼
@@ -391,11 +393,9 @@ Owner Initiates Panic Wipe:
                        │
                        ▼
             ┌──────────────────────────────┐
-            │ 11. Log PANIC_WIPE event:    │
-            │     - User ID                │
-            │     - IP Address             │
-            │     - Timestamp              │
-            │     - Record count           │
+            │ 11. DELETE ALL AUDIT/        │
+            │     ACTIVITY LOGS            │
+            │     Prisma deleteMany()      │
             └──────────┬───────────────────┘
                        │
                        ▼
