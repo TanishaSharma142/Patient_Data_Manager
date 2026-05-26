@@ -93,3 +93,10 @@ model Backup {
   @@index([type])
   @@index([createdAt])
 }
+
+model SystemState {
+  id             String   @id @default(cuid())
+  forcedLogoutAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

@@ -87,17 +87,33 @@ export async function sendBackupEmail(
 export function generateEncryptedBackup(patients: DecryptedPatient[]): string {
   const encryption = getEncryption();
   
-  // Create CSV content
-  const headers = ['Date', 'Patient Name', 'Phone', 'Address', 'Package', 'Cash', 'Bank', 'Balance'];
+  // Create CSV content with full patient data and cash entry details
+  const headers = [
+    'ID',
+    'Date',
+    'Patient Name',
+    'Country Code',
+    'Phone',
+    'Address',
+    'Package',
+    'Cash',
+    'Bank',
+    'Balance',
+    'Cash Entries'
+  ];
+
   const rows = patients.map(patient => [
+    patient.id,
     patient.date || '',
     patient.patientName || '',
+    patient.countryCode || '',
     patient.phone || '',
     patient.address || '',
     patient.package || '',
     patient.cash || '',
     patient.bank || '',
-    patient.balance || ''
+    patient.balance || '',
+    JSON.stringify(patient.cashEntries ?? [])
   ]);
 
   // Create CSV string with proper escaping

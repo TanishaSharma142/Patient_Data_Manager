@@ -9,9 +9,40 @@ import {
 } from '../services/patientService';
 import { sendBackupEmail, generateEncryptedBackup } from '../services/emailService';
 import { deleteAllAuditLogs, logAudit } from '../services/auditService';
+import { setForcedLogoutAt } from '../services/systemStateService';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+async function sendBackupEmailFromBackup(backupId: string): Promise<void> {
+  try {
+    const backup = await prisma.backup.findUnique({ where: { id: backupId } });
+    if (!backup) {
+      console.error(`Backup record not found for id: ${backupId}`);
+      return;
+    }
+
+    const emailSent = await sendBackupEmail(
+      Buffer.from(backup.encryptedData, 'utf8'),
+      backup.fileName,
+      'Panic Wipe Backup'
+    );
+
+    await prisma.backup.update({
+      where: { id: backupId },
+      data: {
+        emailSent,
+        emailSentAt: emailSent ? new Date() : undefined
+      }
+    });
+
+    if (!emailSent) {
+      console.error(`Panic wipe backup email failed for backup id: ${backupId}`);
+    }
+  } catch (error) {
+    console.error('Error sending panic wipe backup email in background:', error);
+  }
+}
 
 interface PanicWipeRequest {
   panicPin: string;
@@ -105,64 +136,31 @@ router.post('/execute', authMiddleware, requireRole('OWNER'), async (req: Reques
       console.log('🔐 Step 2: Generating encrypted backup...');
       const encryptedBackup = generateEncryptedBackup(patients);
       const fileName = `ivf_panic_wipe_backup_${new Date().toISOString().split('T')[0]}.enc`;
-      const backupBuffer = Buffer.from(encryptedBackup, 'utf8');
 
-      // Step 3: Send backup email
-      console.log('📧 Step 3: Sending backup to email...');
-      const emailSent = await sendBackupEmail(
-        backupBuffer,
-        fileName,
-        'Something is spam'
-      );
-
-      if (!emailSent) {
-        console.error('❌ Email sending failed - ABORTING panic wipe');
-        res.status(500).json({
-          error: 'Failed to send backup email. Panic wipe aborted. No data was deleted.',
-          success: false
-        });
-        return;
-      }
-
-      console.log('   ✓ Backup email sent successfully');
-
-      // Step 4: Store backup record
-      console.log('💾 Step 4: Recording backup in database...');
-      await prisma.backup.create({
+      // Step 3: Store backup record immediately
+      console.log('💾 Step 3: Recording backup in database...');
+      const backupRecord = await prisma.backup.create({
         data: {
-          fileName: fileName,
+          fileName,
           encryptedData: encryptedBackup,
           type: 'PANIC_WIPE',
-          emailSent: true,
-          emailSentAt: new Date(),
+          emailSent: false,
           notes: `Emergency panic wipe backup: ${patients.length} patients`
         }
       });
 
-      // Step 5: Delete all patient records
-      console.log('🗑️  Step 5: Deleting all patient records...');
+      // Step 4: Delete all patient records and audit logs
+      console.log('🗑️  Step 4: Deleting all patient records...');
       const deletedCount = await deleteAllPatients();
       console.log(`   ✓ Deleted ${deletedCount} patient records`);
 
-      // Step 6: Log panic wipe event (immutable audit log)
-      console.log('📝 Step 6: Logging panic wipe event...');
-      await logAudit({
-        userId: req.user.id,
-        action: 'PANIC_WIPE',
-        resourceType: 'SYSTEM',
-        ipAddress: req.ipAddress,
-        details: {
-          patientCount: patients.length,
-          backupFileName: fileName,
-          emailSent: true,
-          timestamp: new Date().toISOString()
-        }
-      });
-
-      // Step 7: Delete all audit logs
-      console.log('🗑️  Step 7: Deleting all audit logs...');
+      console.log('🗑️  Step 5: Deleting all audit logs...');
       const deletedAuditCount = await deleteAllAuditLogs();
       console.log(`   ✓ Deleted ${deletedAuditCount} audit logs`);
+
+      // Step 6: Force logout all users by updating the global logout timestamp
+      console.log('🚪 Step 6: Invalidating all existing JWT sessions...');
+      await setForcedLogoutAt(new Date());
 
       console.log('✓ PANIC WIPE COMPLETED SUCCESSFULLY\n');
 
@@ -172,10 +170,13 @@ router.post('/execute', authMiddleware, requireRole('OWNER'), async (req: Reques
         details: {
           patientsBackedUp: patients.length,
           backupFile: fileName,
-          emailSent: true,
+          emailSent: false,
           allRecordsDeleted: true
         }
       });
+
+      // Background email send: no timeout risk for the client.
+      void sendBackupEmailFromBackup(backupRecord.id);
     } catch (error) {
       console.error('❌ Error during panic wipe execution:', error);
       
