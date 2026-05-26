@@ -1,7 +1,10 @@
 // src/services/emailService.ts
 import nodemailer from 'nodemailer';
+import { PrismaClient } from '@prisma/client';
 import { getEncryption } from '../utils/encryption';
 import { DecryptedPatient } from './patientService';
+
+const prisma = new PrismaClient();
 
 interface EmailConfig {
   host: string;
@@ -126,4 +129,56 @@ export function generateEncryptedBackup(patients: DecryptedPatient[]): string {
   const encryptedBackup = encryption.encrypt(csvContent);
   
   return encryptedBackup;
+}
+
+export async function retryFailedBackups(): Promise<{
+  total: number;
+  succeeded: number;
+  failed: number;
+  failures: Array<{ id: string; fileName: string; error: string }>;
+}> {
+  const failedBackups = await prisma.backup.findMany({
+    where: { emailSent: false }
+  });
+
+  const result = {
+    total: failedBackups.length,
+    succeeded: 0,
+    failed: 0,
+    failures: [] as Array<{ id: string; fileName: string; error: string }>
+  };
+
+  for (const backup of failedBackups) {
+    try {
+      const emailSent = await sendBackupEmail(
+        Buffer.from(backup.encryptedData, 'utf8'),
+        backup.fileName,
+        'Backup Retry'
+      );
+
+      if (emailSent) {
+        await prisma.backup.update({
+          where: { id: backup.id },
+          data: {
+            emailSent: true,
+            emailSentAt: new Date()
+          }
+        });
+        result.succeeded += 1;
+      } else {
+        result.failed += 1;
+        result.failures.push({ id: backup.id, fileName: backup.fileName, error: 'Email send failed' });
+      }
+    } catch (error) {
+      result.failed += 1;
+      result.failures.push({
+        id: backup.id,
+        fileName: backup.fileName,
+        error: (error as Error).message
+      });
+      console.error(`Retry failed for backup ${backup.id}:`, error);
+    }
+  }
+
+  return result;
 }

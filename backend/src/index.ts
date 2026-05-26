@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { initializeEncryption } from './utils/encryption';
 import { initializeScheduledJobs } from './services/scheduledJobsService';
+import { retryFailedBackups } from './services/emailService';
 import authRoutes from './routes/authRoutes';
 import patientRoutes from './routes/patientRoutes';
 import panicWipeRoutes from './routes/panicWipeRoutes';
@@ -65,6 +66,26 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
+// Admin retry endpoint for failed backup emails
+app.get('/api/admin/retry-backup', async (req: Request, res: Response) => {
+  const secret = String(req.query.secret || '');
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+
+  try {
+    const retryResult = await retryFailedBackups();
+    return res.json({
+      success: true,
+      message: 'Retry completed',
+      ...retryResult
+    });
+  } catch (error) {
+    console.error('Admin retry-backup failed:', error);
+    return res.status(500).json({ error: 'Retry failed', message: (error as Error).message });
+  }
+});
+
 // 404 handler
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });
@@ -85,7 +106,20 @@ const server = app.listen(PORT, () => {
   console.log(`📍 Running on http://localhost:${PORT}`);
   console.log(`🔐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`\n✓ Server is ready for requests\n`);
+
+  void retryFailedBackupsOnStartup();
 });
+
+async function retryFailedBackupsOnStartup() {
+  try {
+    const retryResult = await retryFailedBackups();
+    if (retryResult.total > 0) {
+      console.log(`🛠️ Retried ${retryResult.total} failed backup email(s): ${retryResult.succeeded} succeeded, ${retryResult.failed} failed.`);
+    }
+  } catch (error) {
+    console.error('Failed to retry pending backup emails on startup:', error);
+  }
+}
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
