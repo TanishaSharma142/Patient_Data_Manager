@@ -7,6 +7,8 @@ import {
   getAllPatients,
   updatePatient,
   deletePatient,
+  createCashEntry,
+  createBankEntry,
   PatientData
 } from '../services/patientService';
 import { logAudit } from '../services/auditService';
@@ -29,7 +31,7 @@ router.post('/', authMiddleware, requireRole('OWNER', 'SECRETARY'), async (req: 
 
     // Secretary cannot submit financial data
     if (req.user.role === 'SECRETARY') {
-      if (data.cash || data.bank || data.balance || (data.cashEntries && data.cashEntries.length > 0)) {
+      if (data.cash || data.bank || data.balance || (data.cashEntries && data.cashEntries.length > 0) || (data.bankEntries && data.bankEntries.length > 0)) {
         res.status(403).json({ error: 'Secretary cannot create financial fields' });
         return;
       }
@@ -191,6 +193,110 @@ router.delete('/:id', authMiddleware, requireRole('OWNER'), async (req: Request,
   } catch (error) {
     console.error('Delete patient error:', error);
     res.status(500).json({ error: 'Failed to delete patient' });
+  }
+});
+
+/**
+ * POST /api/patients/:id/cash-entries
+ * Create a cash entry for a patient
+ * Only OWNER and ACCOUNTANT can create
+ */
+router.post('/:id/cash-entries', authMiddleware, requireRole('OWNER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { entryDate, amount } = req.body;
+
+    if (!entryDate || !amount) {
+      res.status(400).json({ error: 'entryDate and amount are required' });
+      return;
+    }
+
+    try {
+      const entry = await createCashEntry(req.params.id, entryDate, amount);
+
+      // Log audit
+      await logAudit({
+        userId: req.user.id,
+        action: 'CREATE',
+        resourceType: 'PATIENT',
+        resourceId: req.params.id,
+        ipAddress: req.ipAddress,
+        details: { type: 'cash_entry', amount }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: entry
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else if (message.includes('Entry date cannot') || message.includes('would exceed')) {
+        res.status(400).json({ error: message });
+      } else {
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('Create cash entry error:', error);
+    res.status(500).json({ error: 'Failed to create cash entry' });
+  }
+});
+
+/**
+ * POST /api/patients/:id/bank-entries
+ * Create a bank entry for a patient
+ * Only OWNER and ACCOUNTANT can create
+ */
+router.post('/:id/bank-entries', authMiddleware, requireRole('OWNER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { entryDate, amount } = req.body;
+
+    if (!entryDate || !amount) {
+      res.status(400).json({ error: 'entryDate and amount are required' });
+      return;
+    }
+
+    try {
+      const entry = await createBankEntry(req.params.id, entryDate, amount);
+
+      // Log audit
+      await logAudit({
+        userId: req.user.id,
+        action: 'CREATE',
+        resourceType: 'PATIENT',
+        resourceId: req.params.id,
+        ipAddress: req.ipAddress,
+        details: { type: 'bank_entry', amount }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: entry
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message.includes('not found')) {
+        res.status(404).json({ error: message });
+      } else if (message.includes('Entry date cannot') || message.includes('would exceed')) {
+        res.status(400).json({ error: message });
+      } else {
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('Create bank entry error:', error);
+    res.status(500).json({ error: 'Failed to create bank entry' });
   }
 });
 

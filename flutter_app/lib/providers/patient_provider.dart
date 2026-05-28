@@ -110,6 +110,31 @@ class PatientProvider extends ChangeNotifier {
     }
   }
 
+  /// Add bank entry to patient
+  Future<bool> addBankEntry(String patientId, String entryDate, String amount) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final updatedPatient = await _apiService.addBankEntry(patientId, entryDate, amount);
+      
+      final index = _patients.indexWhere((p) => p.id == patientId);
+      if (index != -1) {
+        _patients[index] = updatedPatient;
+      }
+      
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Search patients by multiple fields
   List<Patient> searchByQuery(String query) {
     if (query.isEmpty) return _patients;

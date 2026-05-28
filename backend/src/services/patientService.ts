@@ -22,6 +22,7 @@ export interface PatientData {
   bank?: string;
   balance?: string;
   cashEntries?: CashEntryInput[];
+  bankEntries?: CashEntryInput[];
 }
 
 export interface DecryptedCashEntry {
@@ -42,12 +43,18 @@ export interface DecryptedPatient {
   bank?: string;
   balance?: string;
   cashEntries?: DecryptedCashEntry[];
+  bankEntries?: DecryptedCashEntry[];
   createdAt: Date;
   updatedAt: Date;
 }
 
 type PatientWithCashEntries = Patient & {
   cashEntries?: {
+    id: string;
+    entryDate: Date;
+    amount: Decimal;
+  }[];
+  bankEntries?: {
     id: string;
     entryDate: Date;
     amount: Decimal;
@@ -105,6 +112,11 @@ function decryptPatient(patient: PatientWithCashEntries): DecryptedPatient {
       entryDate: entry.entryDate.toISOString(),
       amount: entry.amount.toString(),
     })),
+    bankEntries: patient.bankEntries?.map(entry => ({
+      id: entry.id,
+      entryDate: entry.entryDate.toISOString(),
+      amount: entry.amount.toString(),
+    })),
     createdAt: patient.createdAt,
     updatedAt: patient.updatedAt
   };
@@ -156,7 +168,8 @@ function filterPatientByRole(patient: DecryptedPatient, role: string): Partial<D
         cash: patient.cash,
         bank: patient.bank,
         balance: patient.balance,
-        cashEntries: patient.cashEntries
+        cashEntries: patient.cashEntries,
+        bankEntries: patient.bankEntries
       };
     
     case 'SECRETARY':
@@ -190,24 +203,54 @@ export async function createPatient(data: PatientData): Promise<DecryptedPatient
     amount: parseDecimal(entry.amount) ?? new Decimal(0),
   }));
 
+  const bankEntries = (data.bankEntries ?? []).map(entry => ({
+    entryDate: entry.entryDate ? new Date(entry.entryDate) : new Date(),
+    amount: parseDecimal(entry.amount) ?? new Decimal(0),
+  }));
+
+  // If registration date provided, validate all entry dates are on/after it
+  const registrationDate = data.date ? new Date(data.date) : null;
+  if (registrationDate) {
+    for (const e of cashEntries) {
+      if (e.entryDate < registrationDate) throw new Error('Cash entry date cannot be before patient registration date');
+    }
+    for (const e of bankEntries) {
+      if (e.entryDate < registrationDate) throw new Error('Bank entry date cannot be before patient registration date');
+    }
+  }
+
   const cashTotal = cashEntries.reduce((sum, entry) => sum.plus(entry.amount), new Decimal(0));
   const resolvedCashTotal = cashEntries.length > 0
     ? cashTotal
     : parseDecimal(data.cash) ?? new Decimal(0);
+
+  const bankTotal = bankEntries.reduce((sum, entry) => sum.plus(entry.amount), new Decimal(0));
+  const resolvedBankTotal = bankEntries.length > 0
+    ? bankTotal
+    : parseDecimal(data.bank) ?? new Decimal(0);
+
+  // Combined total must not exceed package
+  const combined = resolvedCashTotal.plus(resolvedBankTotal);
+  if (combined.gt(parsedPackageAmount)) {
+    throw new Error('Combined cash and bank entries exceed package amount');
+  }
 
   const patient = await prisma.patient.create({
     data: {
       ...encrypted,
       date: data.date ? new Date(data.date) : undefined,
       packageAmount: parsedPackageAmount,
-      bankAmount: parsedBankAmount,
+      bankAmount: resolvedBankTotal,
       cashTotal: resolvedCashTotal,
-      balanceAmount: parsedPackageAmount.minus(resolvedCashTotal.plus(parsedBankAmount)),
+      balanceAmount: parsedPackageAmount.minus(resolvedCashTotal.plus(resolvedBankTotal)),
       cashEntries: {
         create: cashEntries
+      },
+      bankEntries: {
+        create: bankEntries
       }
     },
-    include: { cashEntries: true }
+    include: { cashEntries: true, bankEntries: true }
   });
 
   return decryptPatient(patient);
@@ -220,7 +263,7 @@ export async function getPatientById(id: string, userRole: string): Promise<Part
   try {
     const patient = await prisma.patient.findUnique({
       where: { id },
-      include: { cashEntries: true }
+      include: { cashEntries: true, bankEntries: true }
     });
 
     if (!patient) return null;
@@ -250,7 +293,7 @@ export async function getAllPatients(userRole: string): Promise<Partial<Decrypte
   try {
     const patients = await prisma.patient.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { cashEntries: true }
+      include: { cashEntries: true, bankEntries: true }
     });
 
     return patients.map(patient => {
@@ -283,12 +326,11 @@ export async function updatePatient(
 ): Promise<Partial<DecryptedPatient> | null> {
   const patient = await prisma.patient.findUnique({
     where: { id },
-    include: { cashEntries: true }
+    include: { cashEntries: true, bankEntries: true }
   });
 
   if (!patient) return null;
 
-  // Validate that user can update requested fields
   validateUpdatePermissions(data, userRole);
 
   const enc = getEncryption();
@@ -298,6 +340,8 @@ export async function updatePatient(
   };
 
   const updateData: any = {};
+
+  // Basic fields
   if (data.date !== undefined)        updateData.date = data.date ? new Date(data.date) : null;
   if (data.patientName !== undefined) updateData.patientNameEncrypted = safeEncrypt(data.patientName);
   if (data.countryCode !== undefined) updateData.countryCodeEncrypted = safeEncrypt(data.countryCode);
@@ -305,11 +349,9 @@ export async function updatePatient(
   if (data.address !== undefined)     updateData.addressEncrypted     = safeEncrypt(data.address);
 
   const packageAmount = data.package !== undefined ? parseDecimal(data.package) : patient.packageAmount;
-  const bankAmount = data.bank !== undefined ? parseDecimal(data.bank) : patient.bankAmount;
-
   if (data.package !== undefined) updateData.packageAmount = packageAmount;
-  if (data.bank !== undefined) updateData.bankAmount = bankAmount;
 
+  // ────── CASH ENTRIES ──────
   let cashTotal = patient.cashTotal ?? new Decimal(0);
   if (data.cashEntries !== undefined) {
     const cashEntries = data.cashEntries.map(entry => ({
@@ -322,21 +364,39 @@ export async function updatePatient(
       deleteMany: {},
       create: cashEntries
     };
-  }
-
-  if (data.cash !== undefined) {
+  } else if (data.cash !== undefined) {
+    // Fallback single cash value (no date breakdown)
     cashTotal = parseDecimal(data.cash) ?? cashTotal;
     updateData.cashTotal = cashTotal;
   }
 
+  // ────── BANK ENTRIES ────── (SAME LOGIC AS CASH)
+  let bankTotal = patient.bankAmount ?? new Decimal(0);
+  if (data.bankEntries !== undefined) {
+    const bankEntries = data.bankEntries.map(entry => ({
+      entryDate: entry.entryDate ? new Date(entry.entryDate) : new Date(),
+      amount: parseDecimal(entry.amount) ?? new Decimal(0),
+    }));
+    bankTotal = bankEntries.reduce((sum, entry) => sum.plus(entry.amount), new Decimal(0));
+    updateData.bankAmount = bankTotal;
+    updateData.bankEntries = {
+      deleteMany: {},
+      create: bankEntries
+    };
+  } else if (data.bank !== undefined) {
+    // Fallback single bank value
+    bankTotal = parseDecimal(data.bank) ?? bankTotal;
+    updateData.bankAmount = bankTotal;
+  }
+
+  // Recalculate balance
   const finalPackage = packageAmount ?? new Decimal(0);
-  const finalBank = bankAmount ?? new Decimal(0);
-  updateData.balanceAmount = finalPackage.minus(cashTotal.plus(finalBank));
+  updateData.balanceAmount = finalPackage.minus(cashTotal.plus(bankTotal));
 
   const updated = await prisma.patient.update({
     where: { id },
     data: updateData,
-    include: { cashEntries: true }
+    include: { cashEntries: true, bankEntries: true }
   });
 
   const decrypted = decryptPatient(updated);
@@ -363,6 +423,7 @@ export async function deletePatient(id: string): Promise<boolean> {
 export async function deleteAllPatients(): Promise<number> {
   return await prisma.$transaction(async tx => {
     await tx.cashEntry.deleteMany();
+    await tx.bankEntry.deleteMany();
     const result = await tx.patient.deleteMany();
     return result.count;
   });
@@ -374,7 +435,7 @@ export async function deleteAllPatients(): Promise<number> {
 export async function getAllPatientsForBackup(): Promise<DecryptedPatient[]> {
   const patients = await prisma.patient.findMany({
     orderBy: { createdAt: 'desc' },
-    include: { cashEntries: true }
+    include: { cashEntries: true, bankEntries: true }
   });
 
   return patients.map(decryptPatient);
@@ -406,4 +467,130 @@ function validateUpdatePermissions(data: Partial<PatientData>, role: string): vo
     }
   }
   // OWNER can update all fields
+}
+
+/**
+ * Create a cash entry for a patient
+ */
+export async function createCashEntry(
+  patientId: string,
+  entryDate: string,
+  amount: string
+): Promise<{ id: string; entryDate: string; amount: string }> {
+  const patient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    include: { cashEntries: true, bankEntries: true }
+  });
+
+  if (!patient) {
+    throw new Error('Patient not found');
+  }
+
+  // Validate entry date is >= patient date
+  if (patient.date) {
+    const entryDateTime = new Date(entryDate);
+    if (entryDateTime < patient.date) {
+      throw new Error('Entry date cannot be before patient registration date');
+    }
+  }
+
+  const parsedAmount = parseDecimal(amount);
+  if (!parsedAmount || parsedAmount.lte(0)) {
+    throw new Error('Invalid amount');
+  }
+
+  // Calculate current totals
+  const cashTotal = (patient.cashEntries ?? []).reduce(
+    (sum, entry) => sum.plus(entry.amount),
+    new Decimal(0)
+  );
+  const bankTotal = (patient.bankEntries ?? []).reduce(
+    (sum, entry) => sum.plus(entry.amount),
+    new Decimal(0)
+  );
+
+  // Check that total won't exceed package
+  const packageAmount = patient.packageAmount ?? new Decimal(0);
+  const newTotal = cashTotal.plus(bankTotal).plus(parsedAmount);
+  if (newTotal.gt(packageAmount)) {
+    throw new Error('Entry would exceed package amount');
+  }
+
+  // Create the entry
+  const entry = await prisma.cashEntry.create({
+    data: {
+      patientId,
+      entryDate: new Date(entryDate),
+      amount: parsedAmount
+    }
+  });
+
+  return {
+    id: entry.id,
+    entryDate: entry.entryDate.toISOString(),
+    amount: entry.amount.toString()
+  };
+}
+
+/**
+ * Create a bank entry for a patient
+ */
+export async function createBankEntry(
+  patientId: string,
+  entryDate: string,
+  amount: string
+): Promise<{ id: string; entryDate: string; amount: string }> {
+  const patient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    include: { cashEntries: true, bankEntries: true }
+  });
+
+  if (!patient) {
+    throw new Error('Patient not found');
+  }
+
+  // Validate entry date is >= patient date
+  if (patient.date) {
+    const entryDateTime = new Date(entryDate);
+    if (entryDateTime < patient.date) {
+      throw new Error('Entry date cannot be before patient registration date');
+    }
+  }
+
+  const parsedAmount = parseDecimal(amount);
+  if (!parsedAmount || parsedAmount.lte(0)) {
+    throw new Error('Invalid amount');
+  }
+
+  // Calculate current totals
+  const cashTotal = (patient.cashEntries ?? []).reduce(
+    (sum, entry) => sum.plus(entry.amount),
+    new Decimal(0)
+  );
+  const bankTotal = (patient.bankEntries ?? []).reduce(
+    (sum, entry) => sum.plus(entry.amount),
+    new Decimal(0)
+  );
+
+  // Check that total won't exceed package
+  const packageAmount = patient.packageAmount ?? new Decimal(0);
+  const newTotal = cashTotal.plus(bankTotal).plus(parsedAmount);
+  if (newTotal.gt(packageAmount)) {
+    throw new Error('Entry would exceed package amount');
+  }
+
+  // Create the entry
+  const entry = await prisma.bankEntry.create({
+    data: {
+      patientId,
+      entryDate: new Date(entryDate),
+      amount: parsedAmount
+    }
+  });
+
+  return {
+    id: entry.id,
+    entryDate: entry.entryDate.toISOString(),
+    amount: entry.amount.toString()
+  };
 }

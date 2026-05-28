@@ -48,11 +48,24 @@ model Patient {
   updatedAt     DateTime @updatedAt
 
   cashEntries    CashEntry[]
+  bankEntries    BankEntry[]
 
   @@index([createdAt])
 }
 
 model CashEntry {
+  id          String   @id @default(cuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  entryDate   DateTime
+  amount      Decimal
+  createdAt   DateTime @default(now())
+
+  @@index([patientId])
+  @@index([entryDate])
+}
+
+model BankEntry {
   id          String   @id @default(cuid())
   patientId   String
   patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)

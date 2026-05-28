@@ -1,4 +1,4 @@
-// lib/models/patient.dart
+﻿// lib/models/patient.dart
 
 class CashEntry {
   final String id;
@@ -26,6 +26,32 @@ class CashEntry {
   };
 }
 
+class BankEntry {
+  final String id;
+  final String entryDate;
+  final String amount;
+
+  BankEntry({
+    required this.id,
+    required this.entryDate,
+    required this.amount,
+  });
+
+  factory BankEntry.fromJson(Map<String, dynamic> json) {
+    return BankEntry(
+      id: json['id'] ?? '',
+      entryDate: json['entryDate'] ?? '',
+      amount: json['amount']?.toString() ?? '0',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'entryDate': entryDate,
+    'amount': amount,
+  };
+}
+
 class Patient {
   final String id;
   final String? date;
@@ -38,6 +64,7 @@ class Patient {
   final String? bank;
   final String? balance;
   final List<CashEntry>? cashEntries;
+  final List<BankEntry>? bankEntries;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -53,6 +80,7 @@ class Patient {
     this.bank,
     this.balance,
     this.cashEntries,
+    this.bankEntries,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -76,6 +104,11 @@ class Patient {
               .map((entry) => CashEntry.fromJson(entry as Map<String, dynamic>))
               .toList()
           : null,
+      bankEntries: json['bankEntries'] != null
+          ? (json['bankEntries'] as List)
+              .map((entry) => BankEntry.fromJson(entry as Map<String, dynamic>))
+              .toList()
+          : null,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'])
           : DateTime.now(),
@@ -97,6 +130,7 @@ class Patient {
     'bank': bank,
     'balance': balance,
     'cashEntries': cashEntries?.map((entry) => entry.toJson()).toList(),
+    'bankEntries': bankEntries?.map((entry) => entry.toJson()).toList(),
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
   };
@@ -113,6 +147,7 @@ class Patient {
     String? bank,
     String? balance,
     List<CashEntry>? cashEntries,
+    List<BankEntry>? bankEntries,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -128,6 +163,7 @@ class Patient {
       bank: bank ?? this.bank,
       balance: balance ?? this.balance,
       cashEntries: cashEntries ?? this.cashEntries,
+      bankEntries: bankEntries ?? this.bankEntries,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

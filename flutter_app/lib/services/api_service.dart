@@ -11,7 +11,7 @@ class ApiService {
 
     final scheme = Uri.base.scheme.isNotEmpty ? Uri.base.scheme : 'http';
     final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
-    return '$scheme://$host:3000/api';
+    return '$scheme://$host:3001/api';
   }
 
   // Use the environment override when deploying to a different backend.
@@ -234,6 +234,28 @@ class ApiService {
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw _extractError(response);
       }
+    } catch (e) {
+      throw e.toString();
+    }
+  }
+
+  Future<Patient> addBankEntry(String patientId, String entryDate, String amount) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/patients/$patientId/bank-entries'),
+        headers: _headers(),
+        body: jsonEncode({'entryDate': entryDate, 'amount': amount}),
+      );
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return Patient.fromJson(data['data'] ?? data);
+      }
+
+      if (response.statusCode == 400) throw _extractError(response);
+      if (response.statusCode == 403) throw 'Permission denied — only accountant and owner can add bank entries';
+      if (response.statusCode == 404) throw 'Patient not found';
+      throw _extractError(response);
     } catch (e) {
       throw e.toString();
     }

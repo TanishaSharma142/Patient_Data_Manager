@@ -20,11 +20,11 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _packageController = TextEditingController();
-  final _bankController = TextEditingController();
   final _balanceController = TextEditingController();
 
   String _selectedCountryCode = '+91';
   final List<Map<String, String>> _cashEntries = [];
+  final List<Map<String, String>> _bankEntries = [];
   bool _isSubmitting = false;
 
   static const List<Map<String, Object>> _countryCodeOptions = [
@@ -42,7 +42,6 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     _phoneController.dispose();
     _addressController.dispose();
     _packageController.dispose();
-    _bankController.dispose();
     _balanceController.dispose();
     super.dispose();
   }
@@ -94,13 +93,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
               if (userRole != UserRole.secretary) ...[
                 _buildCashEntriesSection(),
                 const SizedBox(height: 16),
-                _buildNumericField(
-                  'Bank',
-                  _bankController,
-                  canEdit: true,
-                  onChanged: (_) => _recalculateBalance(),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$'))],
-                ),
+                _buildBankEntriesSection(),
                 const SizedBox(height: 16),
                 _buildReadOnlyField('Balance', _balanceController.text),
                 const SizedBox(height: 16),
@@ -429,6 +422,71 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     );
   }
 
+  Widget _buildBankEntriesSection() {
+    final total = _bankEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Bank Entries',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
+              onPressed: _addBankEntry,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_bankEntries.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+            ),
+            child: const Text('No bank entries yet'),
+          ),
+        if (_bankEntries.isNotEmpty)
+          ..._bankEntries.map((entry) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                tileColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+                title: Text('Date: ${entry['entryDate']}'),
+                subtitle: Text('Amount: ${entry['amount']}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () {
+                    setState(() {
+                      _bankEntries.remove(entry);
+                      _recalculateBalance();
+                    });
+                  },
+                ),
+              ),
+            );
+          }),
+        const SizedBox(height: 8),
+        _buildReadOnlyField('Bank Total', total.toStringAsFixed(2)),
+      ],
+    );
+  }
+
   Future<void> _pickDate() async {
     final selectedDate = await showDatePicker(
       context: context,
@@ -447,72 +505,235 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     final dateController = TextEditingController();
     final amountController = TextEditingController();
     DateTime? entryDate;
+    String? validationError;
 
     await showDialog<void>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Add Cash Entry'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: dateController,
-                readOnly: true,
-                onTap: () async {
-                  entryDate = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now(),
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                  );
-                  if (entryDate != null) {
-                    dateController.text = entryDate!.toString().split(' ')[0]; // Store as YYYY-MM-DD only
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: 'Entry Date',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Cash Entry'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (validationError != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red[100],
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.red),
+                      ),
+                      child: Text(
+                        validationError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: dateController,
+                    readOnly: true,
+                    onTap: () async {
+                      entryDate = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (entryDate != null) {
+                        dateController.text = entryDate!.toString().split(' ')[0];
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Entry Date',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$'))],
-                decoration: InputDecoration(
-                  labelText: 'Amount',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$'))],
+                    decoration: InputDecoration(
+                      labelText: 'Amount',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (dateController.text.isEmpty || amountController.text.isEmpty) {
-                  return;
-                }
-                setState(() {
-                  _cashEntries.add({
-                    'entryDate': dateController.text,
-                    'amount': amountController.text,
-                  });
-                  _recalculateBalance();
-                });
-                Navigator.pop(context);
-              },
-              child: const Text('Save'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setDialogState(() {
+                      validationError = null;
+
+                      if (dateController.text.isEmpty || amountController.text.isEmpty) {
+                        validationError = 'Please fill in all fields';
+                        return;
+                      }
+
+                      final entryDateObj = DateTime.tryParse(dateController.text);
+                      final patientDateObj = _dateController.text.isNotEmpty ? DateTime.tryParse(_dateController.text) : null;
+
+                      if (entryDateObj != null && patientDateObj != null && entryDateObj.isBefore(patientDateObj)) {
+                        validationError = 'Entry date cannot be before patient registration date';
+                        return;
+                      }
+
+                      final packageAmount = double.tryParse(_packageController.text) ?? 0;
+                      final entryAmount = double.tryParse(amountController.text) ?? 0;
+                      final currentCashTotal = _cashEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+                      final currentBankTotal = _bankEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+                      final totalAfterEntry = currentCashTotal + currentBankTotal + entryAmount;
+
+                      if (totalAfterEntry > packageAmount) {
+                        validationError = 'Entry would make balance negative';
+                        return;
+                      }
+
+                      setState(() {
+                        _cashEntries.add({
+                          'entryDate': dateController.text,
+                          'amount': amountController.text,
+                        });
+                        _recalculateBalance();
+                      });
+                      Navigator.pop(context);
+                    });
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addBankEntry() async {
+    final dateController = TextEditingController();
+    final amountController = TextEditingController();
+    DateTime? entryDate;
+    String? validationError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Bank Entry'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (validationError != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red[100],
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.red),
+                      ),
+                      child: Text(
+                        validationError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: dateController,
+                    readOnly: true,
+                    onTap: () async {
+                      entryDate = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (entryDate != null) {
+                        dateController.text = entryDate!.toString().split(' ')[0];
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Entry Date',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$'))],
+                    decoration: InputDecoration(
+                      labelText: 'Amount',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setDialogState(() {
+                      validationError = null;
+
+                      if (dateController.text.isEmpty || amountController.text.isEmpty) {
+                        validationError = 'Please fill in all fields';
+                        return;
+                      }
+
+                      final entryDateObj = DateTime.tryParse(dateController.text);
+                      final patientDateObj = _dateController.text.isNotEmpty ? DateTime.tryParse(_dateController.text) : null;
+
+                      if (entryDateObj != null && patientDateObj != null && entryDateObj.isBefore(patientDateObj)) {
+                        validationError = 'Entry date cannot be before patient registration date';
+                        return;
+                      }
+
+                      final packageAmount = double.tryParse(_packageController.text) ?? 0;
+                      final entryAmount = double.tryParse(amountController.text) ?? 0;
+                      final currentCashTotal = _cashEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+                      final currentBankTotal = _bankEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+                      final totalAfterEntry = currentCashTotal + currentBankTotal + entryAmount;
+
+                      if (totalAfterEntry > packageAmount) {
+                        validationError = 'Entry would make balance negative';
+                        return;
+                      }
+
+                      setState(() {
+                        _bankEntries.add({
+                          'entryDate': dateController.text,
+                          'amount': amountController.text,
+                        });
+                        _recalculateBalance();
+                      });
+                      Navigator.pop(context);
+                    });
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -520,9 +741,10 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
   void _recalculateBalance() {
     final packageValue = double.tryParse(_packageController.text) ?? 0;
-    final bankValue = double.tryParse(_bankController.text) ?? 0;
     final cashTotal = _cashEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
-    final balance = packageValue - (cashTotal + bankValue);
+    final bankEntriesTotal = _bankEntries.fold<double>(0, (sum, entry) => sum + double.tryParse(entry['amount'] ?? '0')!);
+    final bankTotal = bankEntriesTotal;
+    final balance = packageValue - (cashTotal + bankTotal);
     setState(() {
       _balanceController.text = balance.toStringAsFixed(2);
     });
@@ -554,9 +776,16 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     if (_packageController.text.isNotEmpty) patientData['package'] = _packageController.text;
 
     if (userRole != UserRole.secretary) {
-      if (_bankController.text.isNotEmpty) patientData['bank'] = _bankController.text;
       if (_cashEntries.isNotEmpty) {
         patientData['cashEntries'] = _cashEntries
+            .map((entry) => {
+                  'entryDate': entry['entryDate'],
+                  'amount': entry['amount'],
+                })
+            .toList();
+      }
+      if (_bankEntries.isNotEmpty) {
+        patientData['bankEntries'] = _bankEntries
             .map((entry) => {
                   'entryDate': entry['entryDate'],
                   'amount': entry['amount'],
