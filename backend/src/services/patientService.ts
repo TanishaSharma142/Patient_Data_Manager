@@ -447,7 +447,7 @@ export async function getAllPatientsForBackup(): Promise<DecryptedPatient[]> {
 function validateUpdatePermissions(data: Partial<PatientData>, role: string): void {
   if (role === 'ACCOUNTANT') {
     // Accountant can only update financial fields and package
-    const allowedFields = ['package', 'cash', 'bank', 'balance', 'cashEntries'];
+    const allowedFields = ['package', 'cash', 'bank', 'balance', 'cashEntries', 'bankEntries'];
     const requestedFields = Object.keys(data);
     
     for (const field of requestedFields) {
