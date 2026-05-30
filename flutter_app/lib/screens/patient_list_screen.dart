@@ -16,6 +16,7 @@ class PatientListScreen extends StatefulWidget {
 class _PatientListScreenState extends State<PatientListScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  String? _activeFilter; // 'today', 'week', 'month', 'all'
 
   @override
   void initState() {
@@ -31,6 +32,45 @@ class _PatientListScreenState extends State<PatientListScreen> {
     super.dispose();
   }
 
+  List<Patient> _applyFilters(List<Patient> patients) {
+    final now = DateTime.now();
+
+    // Apply date filter
+    if (_activeFilter != null && _activeFilter != 'all') {
+      patients = patients.where((p) {
+        if (p.date == null) return false;
+        final patientDate = DateTime.tryParse(p.date!);
+        if (patientDate == null) return false;
+
+        switch (_activeFilter) {
+          case 'today':
+            return patientDate.year == now.year &&
+                   patientDate.month == now.month &&
+                   patientDate.day == now.day;
+          case 'week':
+            final weekAgo = now.subtract(const Duration(days: 7));
+            return patientDate.isAfter(weekAgo.subtract(const Duration(days: 1))) &&
+                   patientDate.isBefore(now.add(const Duration(days: 1)));
+          case 'month':
+            final monthAgo = now.subtract(const Duration(days: 30));
+            return patientDate.isAfter(monthAgo.subtract(const Duration(days: 1))) &&
+                   patientDate.isBefore(now.add(const Duration(days: 1)));
+          default:
+            return true;
+        }
+      }).toList();
+    }
+
+    // Apply name search
+    if (_searchQuery.isNotEmpty) {
+      patients = patients.where((p) =>
+          p.patientName.toLowerCase().contains(_searchQuery.toLowerCase())
+      ).toList();
+    }
+
+    return patients;
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -38,8 +78,8 @@ class _PatientListScreenState extends State<PatientListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blue[600],
-        title: const Text('Patients'),
+        backgroundColor: const Color(0xFF00695C),
+        title: const Text('Records'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -55,7 +95,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
         children: [
           // Search bar
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
               controller: _searchController,
               onChanged: (value) {
@@ -65,7 +105,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
               },
               decoration: InputDecoration(
                 hintText: 'Search by name',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(Icons.search, color: Color(0xFF00695C)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
@@ -81,18 +121,37 @@ class _PatientListScreenState extends State<PatientListScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: Colors.white,
               ),
             ),
           ),
-          
-          // Patients list
+
+          // Date filter chips (only)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                _buildDateChip('All', 'all'),
+                const SizedBox(width: 8),
+                _buildDateChip('Today', 'today'),
+                const SizedBox(width: 8),
+                _buildDateChip('This Week', 'week'),
+                const SizedBox(width: 8),
+                _buildDateChip('This Month', 'month'),
+              ],
+            ),
+          ),
+
+          // Patient grid
           Expanded(
             child: Consumer<PatientProvider>(
               builder: (context, provider, _) {
                 if (provider.isLoading) {
                   return const Center(
-                    child: CircularProgressIndicator(),
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00695C)),
+                    ),
                   );
                 }
 
@@ -101,7 +160,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.error, color: Colors.red[300], size: 48),
+                        Icon(Icons.error_outline, color: Colors.red[300], size: 48),
                         const SizedBox(height: 16),
                         Text(
                           provider.error!,
@@ -111,28 +170,27 @@ class _PatientListScreenState extends State<PatientListScreen> {
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => provider.refresh(),
-                          child: const Text('Retry'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00695C),
+                          ),
+                          child: const Text('Retry', style: TextStyle(color: Colors.white)),
                         ),
                       ],
                     ),
                   );
                 }
 
-                final patients = _searchQuery.isEmpty
-                    ? provider.patients
-                    : provider.searchByQuery(_searchQuery);
+                final filtered = _applyFilters(provider.patients);
 
-                if (patients.isEmpty) {
+                if (filtered.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.info, color: Colors.grey[400], size: 48),
+                        Icon(Icons.folder_open, color: Colors.grey[400], size: 48),
                         const SizedBox(height: 16),
                         Text(
-                          _searchQuery.isEmpty
-                              ? 'No patients found'
-                              : 'No results for "$_searchQuery"',
+                          'No records match filters',
                           style: TextStyle(color: Colors.grey[600]),
                         ),
                       ],
@@ -140,12 +198,27 @@ class _PatientListScreenState extends State<PatientListScreen> {
                   );
                 }
 
-                return ListView.builder(
-                  itemCount: patients.length,
-                  itemBuilder: (context, index) {
-                    return _PatientCard(
-                      patient: patients[index],
-                      userRole: authProvider.user?.role ?? UserRole.secretary,
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    int crossAxisCount = 1;
+                    if (constraints.maxWidth >= 600) crossAxisCount = 2;
+                    if (constraints.maxWidth >= 900) crossAxisCount = 3;
+
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        childAspectRatio: 1.4,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        return _PatientCard(
+                          patient: filtered[index],
+                          userRole: authProvider.user?.role ?? UserRole.secretary,
+                        );
+                      },
                     );
                   },
                 );
@@ -156,10 +229,9 @@ class _PatientListScreenState extends State<PatientListScreen> {
       ),
       floatingActionButton: (authProvider.user?.role ?? UserRole.secretary) != UserRole.accountant
           ? FloatingActionButton(
-              backgroundColor: Colors.blue[600],
+              backgroundColor: const Color(0xFF00695C),
               onPressed: () async {
-                final result = await Navigator.of(context)
-                    .pushNamed('/add-patient') as bool?;
+                final result = await Navigator.of(context).pushNamed('/add-patient') as bool?;
                 if (result == true && mounted) {
                   patientProvider.refresh();
                 }
@@ -167,6 +239,35 @@ class _PatientListScreenState extends State<PatientListScreen> {
               child: const Icon(Icons.add),
             )
           : null,
+    );
+  }
+
+  Widget _buildDateChip(String label, String filterValue) {
+    final isActive = _activeFilter == filterValue;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _activeFilter = isActive ? null : filterValue;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive ? const Color(0xFF00695C) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isActive ? const Color(0xFF00695C) : Colors.grey[300]!,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: isActive ? Colors.white : const Color(0xFF00695C),
+            fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
     );
   }
 
@@ -179,12 +280,12 @@ class _PatientListScreenState extends State<PatientListScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.person),
+              leading: const Icon(Icons.person, color: Color(0xFF00695C)),
               title: Text('User: ${authProvider.user?.username}'),
               subtitle: Text('Role: ${authProvider.user?.role.toString().split('.').last}'),
             ),
             ListTile(
-              leading: const Icon(Icons.history),
+              leading: const Icon(Icons.history, color: Color(0xFF00695C)),
               title: const Text('Activity Log'),
               onTap: () {
                 Navigator.pop(context);
@@ -195,7 +296,7 @@ class _PatientListScreenState extends State<PatientListScreen> {
               ListTile(
                 leading: const Icon(Icons.warning, color: Colors.red),
                 title: const Text(
-                  'Panic Wipe',
+                  'System Reset',
                   style: TextStyle(color: Colors.red),
                 ),
                 onTap: () {
@@ -231,52 +332,76 @@ class _PatientCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: ListTile(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: InkWell(
         onTap: () async {
           final result = await Navigator.of(context).pushNamed(
             '/patient-detail',
             arguments: patient.id,
           ) as bool?;
-          
           if (result == true && context.mounted) {
             Provider.of<PatientProvider>(context, listen: false).refresh();
           }
         },
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.blue[100],
-            borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00695C).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.folder_open, color: Color(0xFF00695C), size: 24),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      patient.patientName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (patient.date != null) _infoText('Date: ${patient.date}'),
+              if (patient.phone != null && userRole != UserRole.accountant)
+                _infoText('Contact: ${patient.phone}'),
+              if (patient.package != null) _infoText('Plan: ${patient.package}'),
+              if (userRole != UserRole.secretary) ...[
+                if (patient.cash != null)
+                  _infoText('Cash: ${patient.cash}', color: Colors.green[700]),
+                if (patient.balance != null)
+                  _infoText('Pending: ${patient.balance}', color: Colors.orange[700]),
+              ],
+              const Spacer(),
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
+              ),
+            ],
           ),
-          child: Icon(Icons.person, color: Colors.blue[600]),
         ),
-        title: Text(
-          patient.patientName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (patient.date != null)
-              Text('Date: ${patient.date}', style: const TextStyle(fontSize: 12)),
-            if (patient.phone != null && userRole != UserRole.accountant)
-              Text('Phone: ${patient.phone}', style: const TextStyle(fontSize: 12)),
-            if (patient.package != null)
-              Text('Package: ${patient.package}', style: const TextStyle(fontSize: 12)),
-            if (patient.cash != null && userRole != UserRole.secretary)
-              Text(
-                'Cash: ${patient.cash}',
-                style: const TextStyle(fontSize: 12, color: Colors.green),
-              ),
-            if (patient.balance != null && userRole != UserRole.secretary)
-              Text(
-                'Balance: ${patient.balance}',
-                style: const TextStyle(fontSize: 12, color: Colors.green),
-              ),
-          ],
-        ),
-        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+
+  Widget _infoText(String text, {Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 11, color: color ?? Colors.grey[600]),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

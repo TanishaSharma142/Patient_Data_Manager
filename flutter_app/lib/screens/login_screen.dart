@@ -22,37 +22,57 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _handleLogin(BuildContext context, AuthProvider authProvider) async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (username.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter username and password'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    authProvider.clearError();
+    final success = await authProvider.login(username, password);
+
+    if (success && mounted) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xFFF5F5F5), // light neutral background
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
+        child: Center(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-                
-                // Logo / Title
+                // Generic icon – a folder / clipboard (clinical, not IVF)
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.blue[600],
+                    color: const Color(0xFF00695C), // teal – professional, calm
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
-                    Icons.panorama_fish_eye,
+                    Icons.folder_open,  // replaced "panorama_fish_eye"
                     size: 48,
                     color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 24),
-                
-                // Title
+
+                // App name – neutral
                 const Text(
-                  'Why here',
+                  'Records',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -60,24 +80,25 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                
-                // Subtitle
+
+                // Generic subtitle
                 Text(
-                  'explore',
+                  'Secure practice management',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[600],
                   ),
                 ),
-                
+
                 const SizedBox(height: 48),
-                
+
                 // Username field
                 TextField(
                   controller: _usernameController,
+                  textInputAction: TextInputAction.next, // move to password on Enter
                   decoration: InputDecoration(
                     hintText: 'Username',
-                    prefixIcon: const Icon(Icons.person),
+                    prefixIcon: const Icon(Icons.person, color: Color(0xFF00695C)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -86,14 +107,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Password field
+
+                // Password field – Enter submits
                 TextField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) {
+                    // Call login when Enter is pressed
+                    final authProvider = context.read<AuthProvider>();
+                    _handleLogin(context, authProvider);
+                  },
                   decoration: InputDecoration(
                     hintText: 'Password',
-                    prefixIcon: const Icon(Icons.lock),
+                    prefixIcon: const Icon(Icons.lock, color: Color(0xFF00695C)),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -113,9 +140,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     fillColor: Colors.white,
                   ),
                 ),
-                
+
                 const SizedBox(height: 24),
-                
+
                 // Error message
                 Consumer<AuthProvider>(
                   builder: (context, authProvider, _) {
@@ -145,8 +172,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     return const SizedBox.shrink();
                   },
                 ),
-                
-                // Login button
+
+                // Login button – keeps loading state
                 Consumer<AuthProvider>(
                   builder: (context, authProvider, _) {
                     return SizedBox(
@@ -157,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : () => _handleLogin(context, authProvider),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[600],
+                          backgroundColor: const Color(0xFF00695C),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -184,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     );
                   },
                 ),
-                
+
                 const SizedBox(height: 48),
               ],
             ),
@@ -193,27 +220,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
-  Future<void> _handleLogin(BuildContext context, AuthProvider authProvider) async {
-    final username = _usernameController.text.trim();
-    final password = _passwordController.text.trim();
-
-    if (username.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter username and password'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    authProvider.clearError();
-    final success = await authProvider.login(username, password);
-
-    if (success && mounted) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    }
-  }
 }
-

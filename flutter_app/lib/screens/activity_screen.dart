@@ -16,9 +16,6 @@ String toIST(String utcTimestamp) {
 String describeActivity(Map<String, dynamic> log, bool isOwnerView) {
   final action = log['action'] ?? '';
   final details = log['details'] as Map<String, dynamic>? ?? {};
-
-  // For owner's all-logs view: username comes from joined user object
-  // For self-activity view: no user join needed
   final username = log['user']?['username'] as String?;
   final role = log['user']?['role'] as String?;
   final who = (username != null)
@@ -28,13 +25,11 @@ String describeActivity(Map<String, dynamic> log, bool isOwnerView) {
   switch (action) {
     case 'LOGIN':
       return '$who logged in';
-
     case 'CREATE':
       final name = details['patientName'] as String?;
       return name != null
-          ? '$who added patient: $name'
-          : '$who added a new patient';
-
+          ? '$who added record: $name'
+          : '$who added a new record';
     case 'UPDATE':
       final name = details['patientName'] as String?;
       final fields = details['fieldsChanged'];
@@ -43,33 +38,27 @@ String describeActivity(Map<String, dynamic> log, bool isOwnerView) {
         fieldStr = ' (${fields.join(", ")})';
       }
       return name != null
-          ? '$who updated patient: $name$fieldStr'
-          : '$who updated patient record$fieldStr';
-
+          ? '$who updated record: $name$fieldStr'
+          : '$who updated record$fieldStr';
     case 'DELETE':
       final name = details['patientName'] as String?;
       return name != null
-          ? '$who deleted patient: $name'
-          : '$who deleted a patient record';
-
+          ? '$who deleted record: $name'
+          : '$who deleted a record';
     case 'PANIC_WIPE':
       final count = details['recordCount'];
       return count != null
-          ? '🚨 $who executed PANIC WIPE — $count records permanently deleted'
-          : '🚨 $who executed PANIC WIPE — all records permanently deleted';
-
+          ? '🚨 $who executed SYSTEM RESET — $count records permanently deleted'
+          : '🚨 $who executed SYSTEM RESET — all records permanently deleted';
     case 'BACKUP':
       return '$who triggered an encrypted backup';
-
     case 'LOGOUT':
       return '$who logged out';
-
     default:
       return '$who performed: $action';
   }
 }
 
-// ─── Widget ──────────────────────────────────────────────────────────────────
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({Key? key}) : super(key: key);
 
@@ -85,12 +74,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   void initState() {
     super.initState();
-    // We read role once in initState; safe because auth won't change mid-session
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     _isOwner = authProvider.user?.role.toString().toUpperCase().contains('OWNER') ?? false;
-
-    // ✅ KEY FIX: Owner calls getAuditLogs() → GET /audit/logs  (sees everyone)
-    //            Others call getMyActivity() → GET /audit/my-activity (sees self)
     _activityFuture = _isOwner
         ? _apiService.getAllAuditLogs()
         : _apiService.getMyActivity();
@@ -107,13 +92,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFF5F5F5),  // consistent light background
       appBar: AppBar(
-        backgroundColor: Colors.blue[600],
+        backgroundColor: const Color(0xFF00695C), // teal
         foregroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          _isOwner ? 'All Activities' : 'My Activity',
+          _isOwner ? 'System Log' : 'My Activity',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         actions: [
@@ -127,12 +112,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
       body: FutureBuilder<List<dynamic>>(
         future: _activityFuture,
         builder: (context, snapshot) {
-          // ── Loading ──
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00695C)),
+              ),
+            );
           }
 
-          // ── Error ──
           if (snapshot.hasError) {
             return Center(
               child: Column(
@@ -156,7 +143,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[600],
+                      backgroundColor: const Color(0xFF00695C),
                       foregroundColor: Colors.white,
                     ),
                   ),
@@ -165,7 +152,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
             );
           }
 
-          // ── Empty ──
           final activities = snapshot.data ?? [];
           if (activities.isEmpty) {
             return Center(
@@ -181,7 +167,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
             );
           }
 
-          // ── List ──
           return ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             itemCount: activities.length,
@@ -196,7 +181,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
   }
 }
 
-// ─── Activity Card ────────────────────────────────────────────────────────────
 class _ActivityCard extends StatelessWidget {
   final Map<String, dynamic> log;
   final bool isOwnerView;
@@ -233,7 +217,7 @@ class _ActivityCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Icon badge ──
+            // Icon badge
             Container(
               width: 42,
               height: 42,
@@ -244,13 +228,10 @@ class _ActivityCard extends StatelessWidget {
               child: Icon(style.icon, color: style.iconColor, size: 22),
             ),
             const SizedBox(width: 12),
-
-            // ── Content ──
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Action badge + description
                   Row(
                     children: [
                       Container(
@@ -260,7 +241,7 @@ class _ActivityCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          action,
+                          action.replaceAll('_', ' '),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -272,8 +253,6 @@ class _ActivityCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 6),
-
-                  // Human-readable description ← THE MAIN FIX
                   Text(
                     description,
                     style: const TextStyle(
@@ -283,13 +262,10 @@ class _ActivityCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-
-                  // Metadata row
                   Wrap(
                     spacing: 12,
                     runSpacing: 4,
                     children: [
-                      // Time in IST
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -301,8 +277,6 @@ class _ActivityCard extends StatelessWidget {
                           ),
                         ],
                       ),
-
-                      // IP address (only for owner)
                       if (isOwnerView && ipAddress != null && ipAddress.isNotEmpty)
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -315,8 +289,6 @@ class _ActivityCard extends StatelessWidget {
                             ),
                           ],
                         ),
-
-                      // Resource ID (truncated) — helpful for debugging
                       if (resourceId != null && resourceId.isNotEmpty)
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -341,7 +313,6 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
-// ─── Action style config ──────────────────────────────────────────────────────
 class _ActionStyle {
   final IconData icon;
   final Color iconColor;
