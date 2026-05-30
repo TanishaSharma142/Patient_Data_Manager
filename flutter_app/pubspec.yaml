@@ -1,12 +1,9 @@
 name: ivf_app
 description: IVF Patient Data Management Mobile App
 publish_to: 'none'
-
 version: 1.0.0+1
-
 environment:
   sdk: ">=3.0.0 <4.0.0"
-
 dependencies:
   flutter:
     sdk: flutter
@@ -27,6 +24,9 @@ dependencies:
   intl: ^0.19.0
   connectivity_plus: ^5.0.0
   
+  # File saving on Android (for report download)
+  path_provider: ^2.1.0
+
   cupertino_icons: ^1.0.2
 
 dev_dependencies:
@@ -37,5 +37,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
-  
