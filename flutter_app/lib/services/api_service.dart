@@ -1,22 +1,17 @@
 // lib/services/api_service.dart
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../models/patient.dart';
 
 class ApiService {
-  // BUG 1 FIXED: use the current page host so the web app works over localhost and network IP.
   static String get _baseUrl {
     const envUrl = String.fromEnvironment('API_BASE_URL');
     if (envUrl.isNotEmpty) return envUrl;
 
-    final scheme = Uri.base.scheme.isNotEmpty ? Uri.base.scheme : 'http';
-    final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
-    return '$scheme://$host:3001/api';
+    // Dev fallback only — used when no --dart-define is passed (e.g. flutter run locally)
+    return 'http://localhost:3001/api';
   }
-
-  // Use the environment override when deploying to a different backend.
-  // Example: flutter build web --dart-define=API_BASE_URL=https://my-api.example.com/api
-  // If you need a specific local IP on mobile or another machine, set API_BASE_URL too.
 
   static final ApiService _instance = ApiService._internal();
 
@@ -48,9 +43,24 @@ class ApiService {
     return headers;
   }
 
-  // ─── Generic error extractor ─────────────────────────────────────────────
-  // BUG 2 FIXED: previously all catch blocks re-wrapped the error in a new
-  // string, so the real server message was buried. Now we extract it properly.
+  // ─── Centralised error handler for all API calls ─────────────────────────
+  Future<T> _safeApiCall<T>(Future<T> Function() apiCall) async {
+    try {
+      return await apiCall();
+    } on http.ClientException catch (_) {
+      // Network errors (DNS, refused, timeout, etc.)
+      throw 'No internet connection. Please check your network and try again.';
+    } on SocketException catch (_) {
+      // Additional network error detection (mobile/desktop)
+      throw 'No internet connection. Please check your network and try again.';
+    } catch (e, stackTrace) {
+      // Log the real error for debugging (replace print with your logger)
+      print('Unexpected API error: $e\n$stackTrace');
+      // User sees only a generic, safe message
+      throw 'Something went wrong. Please try again later.';
+    }
+  }
+
   String _extractError(http.Response response) {
     try {
       final body = jsonDecode(response.body);
@@ -63,62 +73,51 @@ class ApiService {
   // ==================== Authentication ====================
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/auth/login'),
         headers: _headers(),
         body: jsonEncode({'username': username, 'password': password}),
       );
+
       if (response.statusCode == 200) {
         try {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
-          
-          // Safely extract token
           final token = data['token'];
           if (token is! String || token.isEmpty) {
-            throw 'Invalid or missing token in response';
+            throw const FormatException();
           }
-          
-          // Safely extract user object
           final userMap = data['user'];
           if (userMap is! Map<String, dynamic>) {
-            throw 'Invalid or missing user data in response';
+            throw const FormatException();
           }
-          
-          // Store token
           _token = token;
-          
-          // Return response with validated data
           return {
             'success': true,
             'token': token,
             'user': userMap,
           };
-        } catch (e) {
-          throw 'Failed to parse login response: $e';
+        } catch (_) {
+          throw 'Unable to sign in. Please try again.';
         }
       }
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Map<String, dynamic>> verifyToken() async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/auth/verify'),
         headers: _headers(),
       );
       if (response.statusCode == 200) return jsonDecode(response.body);
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<String> refreshToken() async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/auth/refresh'),
         headers: _headers(),
@@ -129,15 +128,13 @@ class ApiService {
         return data['token'];
       }
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   // ==================== Patients ====================
 
   Future<List<Patient>> getAllPatients() async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.get(
         Uri.parse('$_baseUrl/patients'),
         headers: _headers(),
@@ -145,22 +142,17 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-
-        // BUG 3 FIXED: backend returns data under 'data' key, but if
-        // the response shape ever changes to 'patients' this handles both.
         final raw = data['data'] ?? data['patients'] ?? [];
         return (raw as List).map((p) => Patient.fromJson(p)).toList();
       }
 
       if (response.statusCode == 401) throw 'Session expired — please login again';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Patient> getPatientById(String id) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.get(
         Uri.parse('$_baseUrl/patients/$id'),
         headers: _headers(),
@@ -168,7 +160,6 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        // BUG 4 FIXED: same as above — handle both 'data' and direct object
         final patientJson = data['data'] ?? data;
         return Patient.fromJson(patientJson);
       }
@@ -176,13 +167,11 @@ class ApiService {
       if (response.statusCode == 404) throw 'Patient not found';
       if (response.statusCode == 401) throw 'Session expired — please login again';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Patient> createPatient(Map<String, dynamic> patientData) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/patients'),
         headers: _headers(),
@@ -196,13 +185,11 @@ class ApiService {
 
       if (response.statusCode == 403) throw 'Permission denied — only owners/secretaries can add patients';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Patient> updatePatient(String id, Map<String, dynamic> updates) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.patch(
         Uri.parse('$_baseUrl/patients/$id'),
         headers: _headers(),
@@ -217,30 +204,24 @@ class ApiService {
       if (response.statusCode == 403) throw 'Permission denied';
       if (response.statusCode == 404) throw 'Patient not found';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<void> deletePatient(String id) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.delete(
         Uri.parse('$_baseUrl/patients/$id'),
         headers: _headers(),
       );
 
-      // BUG 5 FIXED: some backends return 204 No Content on delete, not 200.
-      // Accepting both so delete doesn't falsely fail.
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw _extractError(response);
       }
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Patient> addBankEntry(String patientId, String entryDate, String amount) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/patients/$patientId/bank-entries'),
         headers: _headers(),
@@ -256,28 +237,24 @@ class ApiService {
       if (response.statusCode == 403) throw 'Permission denied — only accountant and owner can add bank entries';
       if (response.statusCode == 404) throw 'Patient not found';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   // ==================== Panic Wipe ====================
 
   Future<Map<String, dynamic>> checkPanicWipeStatus() async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.get(
         Uri.parse('$_baseUrl/panic-wipe/status'),
         headers: _headers(),
       );
       if (response.statusCode == 200) return jsonDecode(response.body);
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<Map<String, dynamic>> executePanicWipe(String panicPin) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.post(
         Uri.parse('$_baseUrl/panic-wipe/execute'),
         headers: _headers(),
@@ -286,16 +263,13 @@ class ApiService {
       if (response.statusCode == 200) return jsonDecode(response.body);
       if (response.statusCode == 403) throw 'Invalid panic PIN';
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   // ==================== Audit ====================
 
-  // BUG FIXED: audit logs use 'logs' key not 'data' key (matches auditRoutes.ts)
   Future<List<dynamic>> getAllAuditLogs({int limit = 200, int offset = 0}) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.get(
         Uri.parse('$_baseUrl/audit/logs?limit=$limit&offset=$offset'),
         headers: _headers(),
@@ -305,13 +279,11 @@ class ApiService {
         return data['logs'] ?? data['data'] ?? [];
       }
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 
   Future<List<dynamic>> getMyActivity({int limit = 50, int offset = 0}) async {
-    try {
+    return _safeApiCall(() async {
       final response = await _client.get(
         Uri.parse('$_baseUrl/audit/my-activity?limit=$limit&offset=$offset'),
         headers: _headers(),
@@ -321,8 +293,6 @@ class ApiService {
         return data['logs'] ?? data['data'] ?? [];
       }
       throw _extractError(response);
-    } catch (e) {
-      throw e.toString();
-    }
+    });
   }
 }
