@@ -10,6 +10,7 @@ import authRoutes from './routes/authRoutes';
 import patientRoutes from './routes/patientRoutes';
 import panicWipeRoutes from './routes/panicWipeRoutes';
 import auditRoutes from './routes/auditRoutes';
+import userRoutes from './routes/userRoutes';
 import { PrismaClient } from '@prisma/client';
 
 // Determine which environment we are running in (defaults to 'development')
@@ -60,6 +61,7 @@ try {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/panic-wipe', panicWipeRoutes);
 app.use('/api/audit', auditRoutes);
 

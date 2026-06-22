@@ -9,6 +9,8 @@ import 'screens/patient_detail_screen.dart';
 import 'screens/add_patient_screen.dart';
 import 'screens/panic_wipe_screen.dart';
 import 'screens/activity_screen.dart';
+import 'screens/change_password_screen.dart';
+import 'screens/staff_management_screen.dart';
 import 'services/api_service.dart';
 
 void main() async {
@@ -44,6 +46,8 @@ class MyApp extends StatelessWidget {
           ),
           '/panic-wipe': (context) => const PanicWipeScreen(),
           '/activity': (context) => const ActivityScreen(),
+          '/change-password': (context) => const ChangePasswordScreen(),
+          '/staff-management': (context) => const StaffManagementScreen(),
         },
       ),
     );
@@ -79,6 +83,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (authProvider.isAuthenticated) {
+          if (authProvider.mustChangePassword) {
+            return const ChangePasswordScreen();
+          }
           return const PatientListScreen();
         }
 

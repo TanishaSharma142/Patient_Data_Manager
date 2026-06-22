@@ -105,6 +105,127 @@ class ApiService {
     });
   }
 
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    return _safeApiCall(() async {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/auth/change-password'),
+        headers: _headers(),
+        body: jsonEncode({
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getUsers() async {
+    return _safeApiCall(() async {
+      final response = await _client.get(
+        Uri.parse('$_baseUrl/users'),
+        headers: _headers(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final raw = data['data'];
+        if (raw is List) {
+          return List<Map<String, dynamic>>.from(raw);
+        }
+        throw 'Unexpected user list response';
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> createUser(String username, String email, String role) async {
+    return _safeApiCall(() async {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/users'),
+        headers: _headers(),
+        body: jsonEncode({
+          'username': username,
+          'email': email,
+          'role': role,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> resetUserPassword(String userId) async {
+    return _safeApiCall(() async {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/users/$userId/reset-password'),
+        headers: _headers(),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<void> deleteUser(String userId) async {
+    return _safeApiCall(() async {
+      final response = await _client.delete(
+        Uri.parse('$_baseUrl/users/$userId'),
+        headers: _headers(),
+      );
+
+      if (response.statusCode == 200) {
+        return;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> setBackupEmail(String backupEmail) async {
+    return _safeApiCall(() async {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/users/backup-email/set'),
+        headers: _headers(),
+        body: jsonEncode({'backupEmail': backupEmail}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
+  Future<Map<String, dynamic>> verifyBackupEmail(String verificationCode) async {
+    return _safeApiCall(() async {
+      final response = await _client.post(
+        Uri.parse('$_baseUrl/users/backup-email/verify'),
+        headers: _headers(),
+        body: jsonEncode({'verificationCode': verificationCode}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+
+      throw _extractError(response);
+    });
+  }
+
   Future<Map<String, dynamic>> verifyToken() async {
     return _safeApiCall(() async {
       final response = await _client.post(

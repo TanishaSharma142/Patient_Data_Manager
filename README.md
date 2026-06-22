@@ -77,9 +77,11 @@ IVF/
 ### Phase 3: Flutter Frontend ✅
 - ✅ Login screen with demo credentials
 - ✅ Patient list with search functionality
-- ✅ Role-based column filtering and permissions: Accountant can view patient name, date, package, cash, bank, balance and add dated cash entries only; Secretary can create new patients but cannot edit existing patients
-- ✅ Patient detail view with role-restricted editing
+- ✅ Role-based column filtering and permissions: Accountant can view patient name, date, package, cash, bank, balance and add dated cash and bank entries only; Secretary can create new patients but cannot edit existing patients
+- ✅ Patient detail view with multiple cash/bank transaction entries and history
 - ✅ Add patient form with field permissions
+- ✅ Add dated cash and bank entries for authorized users
+- ✅ Report generation with CSV export
 - ✅ Panic wipe screen (Owner only) with 6-digit PIN entry
 - ✅ Activity log view
 - ✅ JWT token storage in secure storage
@@ -92,7 +94,7 @@ IVF/
 | Role | Access |
 |------|--------|
 | **Owner** (rakesh) | Full access to all fields. Can perform panic wipe. Can view audit logs. |
-| **Accountant** | Views patient name, date, package, cash, bank, balance; can add dated cash entries only (no edits to existing patient fields). |
+| **Accountant** | Views patient name, date, package, cash, bank, balance; can add dated cash and bank entries only (no edits to existing patient fields). |
 | **Secretary** | Views date, patient name, phone, address, package; can create new patients only and cannot edit existing patient records. |
 
 ## Encrypted Fields

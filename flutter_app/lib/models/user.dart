@@ -7,12 +7,18 @@ class User {
   final String username;
   final String email;
   final UserRole role;
+  final bool mustChangePassword;
+  final String? backupEmail;
+  final bool backupEmailVerified;
 
   User({
     required this.id,
     required this.username,
     required this.email,
     required this.role,
+    this.mustChangePassword = false,
+    this.backupEmail,
+    this.backupEmailVerified = false,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -32,6 +38,9 @@ class User {
       username: username,
       email: email,
       role: _parseRole(roleString),
+      mustChangePassword: json['mustChangePassword'] == true,
+      backupEmail: json['backupEmail'] as String?,
+      backupEmailVerified: json['backupEmailVerified'] == true,
     );
   }
 
@@ -40,7 +49,30 @@ class User {
     'username': username,
     'email': email,
     'role': role.toString().split('.').last.toUpperCase(),
+    'mustChangePassword': mustChangePassword,
+    'backupEmail': backupEmail,
+    'backupEmailVerified': backupEmailVerified,
   };
+
+  User copyWith({
+    String? id,
+    String? username,
+    String? email,
+    UserRole? role,
+    bool? mustChangePassword,
+    String? backupEmail,
+    bool? backupEmailVerified,
+  }) {
+    return User(
+      id: id ?? this.id,
+      username: username ?? this.username,
+      email: email ?? this.email,
+      role: role ?? this.role,
+      mustChangePassword: mustChangePassword ?? this.mustChangePassword,
+      backupEmail: backupEmail ?? this.backupEmail,
+      backupEmailVerified: backupEmailVerified ?? this.backupEmailVerified,
+    );
+  }
 
   static UserRole _parseRole(String role) {
     switch (role.toUpperCase()) {

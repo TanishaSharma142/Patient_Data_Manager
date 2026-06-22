@@ -40,7 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await authProvider.login(username, password);
 
     if (success && mounted) {
-      Navigator.of(context).pushReplacementNamed('/home');
+      final destination = authProvider.mustChangePassword ? '/change-password' : '/home';
+      Navigator.of(context).pushReplacementNamed(destination);
     }
   }
 

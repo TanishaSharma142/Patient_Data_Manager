@@ -143,6 +143,7 @@ IVF/
 - ✅ Query endpoints for retrieving audit history
 - ✅ Owner-only access to full audit logs
 - ✅ User-specific activity log
+- ✅ Support for multiple dated cash and bank entries per patient with balance validation
 
 **Email Service:**
 - ✅ nodemailer integration
@@ -170,17 +171,19 @@ IVF/
 
 **Patient Management:**
 - ✅ Patient list screen with search
-- ✅ Patient detail view
+- ✅ Patient detail view with multiple cash/bank transaction entries and history
 - ✅ Add patient form
 - ✅ Edit patient form
 - ✅ Delete patient (Owner only)
 - ✅ Role-based field visibility
+- ✅ Add dated cash and bank entries for authorized users
 - ✅ Form validation
 - ✅ Loading states and error handling
+- ✅ Report generation with CSV export
 
 **Role-Based UI:**
 - ✅ Owner: Full access to all screens
-- ✅ Accountant: Can view patient name, date, package, cash, bank, balance and add dated cash entries only
+- ✅ Accountant: Can view patient name, date, package, cash, bank, balance and add dated cash and bank entries only
 - ✅ Secretary: Can create new patients only and cannot edit existing patient records
 - ✅ Proper field masking on all screens
 - ✅ Permission-appropriate forms
@@ -263,7 +266,7 @@ Can Perform: Backup, Manual deletion
 ```
 Can View:    Patient Name, Date, Package, Cash, Bank, Balance
 Cannot View: Phone, Address
-Can Edit:    Add dated cash entries only
+Can Edit:    Add dated cash and bank entries only
 Cannot Edit: Patient details or financial fields directly
 Cannot:      Create new patients, Delete records, Panic wipe
 ```

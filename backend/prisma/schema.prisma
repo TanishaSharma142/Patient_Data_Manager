@@ -19,11 +19,14 @@ model User {
   id            String   @id @default(cuid())
   username      String   @unique
   email         String   @unique
-  passwordHash  String
-  role          UserRole
-  panicPinHash  String?  // Only for OWNER role
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  passwordHash       String
+  role               UserRole
+  panicPinHash       String?  // Only for OWNER role
+  backupEmail        String?  // Backup email for OWNER role
+  backupEmailVerified Boolean @default(false)  // Whether backup email is verified
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   auditLogs     AuditLog[]
 }

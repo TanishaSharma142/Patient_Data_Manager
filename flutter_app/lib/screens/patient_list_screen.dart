@@ -295,6 +295,15 @@ class _PatientListScreenState extends State<PatientListScreen> {
             ),
             if (authProvider.user?.isOwner == true)
               ListTile(
+                leading: const Icon(Icons.group, color: Color(0xFF00695C)),
+                title: const Text('Manage Staff'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).pushNamed('/staff-management');
+                },
+              ),
+            if (authProvider.user?.isOwner == true)
+              ListTile(
                 leading: const Icon(Icons.warning, color: Colors.red),
                 title: const Text('System Reset',
                     style: TextStyle(color: Colors.red)),

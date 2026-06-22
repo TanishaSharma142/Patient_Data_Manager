@@ -18,6 +18,7 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _isAuthenticated;
+  bool get mustChangePassword => _user?.mustChangePassword ?? false;
 
   /// Initialize authentication (check if token exists)
   Future<void> initialize() async {
@@ -109,6 +110,27 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       print('Token refresh failed: $e');
       await logout();
+      return false;
+    }
+  }
+
+  Future<bool> changePassword(String currentPassword, String newPassword) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _apiService.changePassword(currentPassword, newPassword);
+      if (_user != null) {
+        _user = _user!.copyWith(mustChangePassword: false);
+      }
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
       return false;
     }
   }

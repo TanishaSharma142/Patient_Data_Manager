@@ -72,6 +72,7 @@ Flutter Application
 │   ├── PatientListScreen
 │   │   ├── Patient list view
 │   │   ├── Search functionality
+│   │   ├── Report generation with CSV export
 │   │   └── Role-based column filtering
 │   ├── PatientDetailScreen
 │   │   ├── View patient details
@@ -100,10 +101,14 @@ Flutter Application
 │   │   ├── REST API calls
 │   │   ├── Token injection
 │   │   └── Error handling
-│   └── SecureStorageService
-│       ├── JWT token storage
-│       ├── Secure read/write
-│       └── Token refresh
+│   ├── SecureStorageService
+│   │   ├── JWT token storage
+│   │   ├── Secure read/write
+│   │   └── Token refresh
+│   └── ReportService
+│       ├── Generate CSV reports
+│       ├── Apply report filters
+│       └── Download reports
 │
 └── Models (Data Classes)
     ├── User
@@ -120,6 +125,8 @@ Express Application
 │   ├── POST /auth/verify
 │   ├── POST /auth/refresh
 │   ├── GET/POST/PATCH/DELETE /patients
+│   ├── POST /patients/:id/cash-entries
+│   ├── POST /patients/:id/bank-entries
 │   ├── GET /panic-wipe/status
 │   ├── POST /panic-wipe/execute
 │   ├── GET /audit/logs
