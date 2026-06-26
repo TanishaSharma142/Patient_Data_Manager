@@ -18,16 +18,13 @@ interface EmailConfig {
 
 let transporter: nodemailer.Transporter | null = null;
 
-/**
- * Initialize email transporter
- */
 export function initializeEmailService(): nodemailer.Transporter {
   if (transporter) return transporter;
 
   const config: EmailConfig = {
     host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
     port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: false, // true for 465, false for 587
+    secure: false,
     auth: {
       user: process.env.SMTP_USER || 'apikey',
       pass: process.env.SMTP_PASS || ''
@@ -39,25 +36,20 @@ export function initializeEmailService(): nodemailer.Transporter {
 }
 
 /**
- * Send backup email with encrypted attachment
+ * Send backup email to a specific recipient
  */
-export async function sendBackupEmail(
+export async function sendBackupEmailTo(
+  toEmail: string,
   encryptedData: Buffer,
   fileName: string,
   subject: string = 'Monthly IVF Data Backup'
 ): Promise<boolean> {
   try {
     const transport = initializeEmailService();
-    const backupEmail = process.env.BACKUP_EMAIL;
-
-    if (!backupEmail) {
-      console.error('BACKUP_EMAIL not configured');
-      return false;
-    }
 
     const mailOptions = {
       from: process.env.SMTP_USER || 'noreply@example.com',
-      to: backupEmail,
+      to: toEmail,
       subject: subject,
       text: 'Attached is your encrypted IVF patient data backup. Store this file safely. Only the system owner can decrypt it using the encryption key.',
       html: `
@@ -76,14 +68,34 @@ export async function sendBackupEmail(
     };
 
     const info = await transport.sendMail(mailOptions);
-    console.log('✓ Backup email sent:', info.messageId);
+    console.log(`✓ Backup email sent to ${toEmail}: ${info.messageId}`);
     return true;
   } catch (error) {
-    console.error('Error sending backup email:', error);
+    console.error(`Error sending backup email to ${toEmail}:`, error);
     return false;
   }
 }
 
+/**
+ * Original sendBackupEmail – kept for backward compatibility,
+ * sends only to the environment‑configured BACKUP_EMAIL.
+ */
+export async function sendBackupEmail(
+  encryptedData: Buffer,
+  fileName: string,
+  subject: string = 'Monthly IVF Data Backup'
+): Promise<boolean> {
+  const backupEmail = process.env.BACKUP_EMAIL;
+  if (!backupEmail) {
+    console.error('BACKUP_EMAIL not configured');
+    return false;
+  }
+  return sendBackupEmailTo(backupEmail, encryptedData, fileName, subject);
+}
+
+/**
+ * Send verification code to a single email.
+ */
 export async function sendVerificationCodeEmail(to: string, verificationCode: string): Promise<boolean> {
   try {
     const transport = initializeEmailService();
@@ -110,12 +122,11 @@ export async function sendVerificationCodeEmail(to: string, verificationCode: st
 }
 
 /**
- * Generate encrypted backup file content
+ * Generate encrypted backup CSV content.
  */
 export function generateEncryptedBackup(patients: DecryptedPatient[]): string {
   const encryption = getEncryption();
   
-  // Create CSV content with full patient data and cash entry details
   const headers = [
     'ID',
     'Date',
@@ -144,18 +155,19 @@ export function generateEncryptedBackup(patients: DecryptedPatient[]): string {
     JSON.stringify(patient.cashEntries ?? [])
   ]);
 
-  // Create CSV string with proper escaping
   const csvContent = [
     headers.map(h => `"${h}"`).join(','),
     ...rows.map(row => row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
   ].join('\n');
 
-  // Encrypt the CSV content
   const encryptedBackup = encryption.encrypt(csvContent);
-  
   return encryptedBackup;
 }
 
+/**
+ * Retry failed backups – now sends to **all** verified backup emails
+ * plus the environment admin email, instead of only the admin email.
+ */
 export async function retryFailedBackups(): Promise<{
   total: number;
   succeeded: number;
@@ -173,35 +185,62 @@ export async function retryFailedBackups(): Promise<{
     failures: [] as Array<{ id: string; fileName: string; error: string }>
   };
 
-  for (const backup of failedBackups) {
-    try {
-      const emailSent = await sendBackupEmail(
-        Buffer.from(backup.encryptedData, 'utf8'),
-        backup.fileName,
-        'Backup Retry'
-      );
+  // Gather all unique recipient emails across all owners
+  // (this is a simplified approach – for each backup we could store intended recipients,
+  // but here we resend to all currently verified backup emails + admin email).
+  const verifiedBackupEmails = await prisma.backupEmail.findMany({
+    where: { verified: true },
+    select: { email: true }
+  });
+  const uniqueRecipients = new Set(verifiedBackupEmails.map(be => be.email));
 
-      if (emailSent) {
-        await prisma.backup.update({
-          where: { id: backup.id },
-          data: {
-            emailSent: true,
-            emailSentAt: new Date()
-          }
+  const adminEmail = process.env.BACKUP_EMAIL;
+  if (adminEmail) {
+    uniqueRecipients.add(adminEmail);
+  }
+
+  const recipients = Array.from(uniqueRecipients);
+  if (recipients.length === 0) {
+    console.warn('No backup email recipients configured – retry aborted.');
+    return result;
+  }
+
+  for (const backup of failedBackups) {
+    let allSent = true;
+    for (const email of recipients) {
+      try {
+        const emailSent = await sendBackupEmailTo(
+          email,
+          Buffer.from(backup.encryptedData, 'utf8'),
+          backup.fileName,
+          'Backup Retry'
+        );
+        if (!emailSent) {
+          allSent = false;
+          console.error(`Retry failed for backup ${backup.id} to ${email}`);
+        }
+      } catch (error) {
+        allSent = false;
+        result.failures.push({
+          id: backup.id,
+          fileName: backup.fileName,
+          error: `Failed to send to ${email}: ${(error as Error).message}`
         });
-        result.succeeded += 1;
-      } else {
-        result.failed += 1;
-        result.failures.push({ id: backup.id, fileName: backup.fileName, error: 'Email send failed' });
       }
-    } catch (error) {
-      result.failed += 1;
-      result.failures.push({
-        id: backup.id,
-        fileName: backup.fileName,
-        error: (error as Error).message
+    }
+
+    if (allSent) {
+      await prisma.backup.update({
+        where: { id: backup.id },
+        data: {
+          emailSent: true,
+          emailSentAt: new Date()
+        }
       });
-      console.error(`Retry failed for backup ${backup.id}:`, error);
+      result.succeeded += 1;
+    } else {
+      result.failed += 1;
+      // If at least one recipient failed, we keep emailSent = false so it will be retried later.
     }
   }
 

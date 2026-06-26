@@ -16,42 +16,51 @@ enum UserRole {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  username      String   @unique
-  email         String   @unique
-  passwordHash       String
-  role               UserRole
-  panicPinHash       String?  // Only for OWNER role
-  backupEmail        String?  // Backup email for OWNER role
-  backupEmailVerified Boolean @default(false)  // Whether backup email is verified
-  mustChangePassword Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  username            String   @unique
+  email               String   @unique
+  passwordHash        String
+  role                UserRole
+  panicPinHash        String?  // Only for OWNER role
+  mustChangePassword  Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  auditLogs     AuditLog[]
+  auditLogs           AuditLog[]
+  backupEmails        BackupEmail[]   // Multiple backup emails
+}
+
+model BackupEmail {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email             String
+  verified          Boolean   @default(false)
+  verificationCode  String?
+  codeExpiresAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, email])
+  @@index([userId])
 }
 
 model Patient {
-  id            String   @id @default(cuid())
-
-  // Patient metadata and identifiers
-  date           DateTime?
+  id                   String    @id @default(cuid())
+  date                 DateTime?
   patientNameEncrypted String?
   countryCodeEncrypted String?
-  phoneEncrypted     String?
-  addressEncrypted   String?
+  phoneEncrypted       String?
+  addressEncrypted     String?
+  packageAmount        Decimal?
+  cashTotal            Decimal?
+  bankAmount           Decimal?
+  balanceAmount        Decimal?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  // Financial fields stored as numeric values
-  packageAmount  Decimal?
-  cashTotal      Decimal?
-  bankAmount     Decimal?
-  balanceAmount  Decimal?
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  cashEntries    CashEntry[]
-  bankEntries    BankEntry[]
+  cashEntries          CashEntry[]
+  bankEntries          BankEntry[]
 
   @@index([createdAt])
 }
@@ -84,11 +93,11 @@ model AuditLog {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id])
-  action        String   // LOGIN, CREATE, UPDATE, DELETE, BACKUP, PANIC_WIPE
-  resourceType  String?  // PATIENT, SYSTEM
+  action        String
+  resourceType  String?
   resourceId    String?
   ipAddress     String?
-  details       String?  // JSON stringified details
+  details       String?
   timestamp     DateTime @default(now())
 
   @@index([userId])
@@ -99,12 +108,12 @@ model AuditLog {
 model Backup {
   id            String   @id @default(cuid())
   fileName      String
-  encryptedData String   // Base64 encoded encrypted backup
-  type          String   // MONTHLY or PANIC_WIPE
+  encryptedData String
+  type          String
   createdAt     DateTime @default(now())
   emailSent     Boolean  @default(false)
   emailSentAt   DateTime?
-  notes         String?  // Additional notes
+  notes         String?
 
   @@index([type])
   @@index([createdAt])

@@ -15,6 +15,8 @@ interface CreateUserRequest {
   role: 'OWNER' | 'ACCOUNTANT' | 'SECRETARY';
 }
 
+// ─── User CRUD (unchanged except removed backup email references) ──────────
+
 router.get('/', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
@@ -28,7 +30,6 @@ router.get('/', authMiddleware, requireRole('OWNER'), async (req: Request, res: 
         updatedAt: true,
       }
     });
-
     res.json({ success: true, data: users });
   } catch (error) {
     console.error('Fetch users error:', error);
@@ -155,7 +156,6 @@ router.post('/:id/reset-password', authMiddleware, requireRole('OWNER'), async (
 router.delete('/:id', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const requesterRole = req.user!.role;
 
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) {
@@ -163,13 +163,11 @@ router.delete('/:id', authMiddleware, requireRole('OWNER'), async (req: Request,
       return;
     }
 
-    // Prevent deletion of the requesting user
     if (user.id === req.user!.id) {
       res.status(403).json({ error: 'Cannot delete your own account' });
       return;
     }
 
-    // Only non-OWNER users can be deleted by any OWNER
     if (user.role === 'OWNER') {
       res.status(403).json({ error: 'Cannot delete another owner account' });
       return;
@@ -193,114 +191,226 @@ router.delete('/:id', authMiddleware, requireRole('OWNER'), async (req: Request,
   }
 });
 
-router.post('/backup-email/set', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
-  try {
-    const { backupEmail } = req.body;
+// ─── Backup Email Management ────────────────────────────────────────
 
-    if (!backupEmail || typeof backupEmail !== 'string') {
-      res.status(400).json({ error: 'Valid backup email is required' });
+// Prevent adding the env admin email as a backup
+function isEnvBackupEmail(email: string): boolean {
+  const envEmail = process.env.BACKUP_EMAIL;
+  if (!envEmail) return false;
+  return email.toLowerCase() === envEmail.toLowerCase();
+}
+
+// GET /users/backup-emails - list all backup emails for the logged-in owner
+router.get('/backup-emails', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
+  try {
+    const backupEmails = await prisma.backupEmail.findMany({
+      where: { userId: req.user!.id },
+      orderBy: { createdAt: 'asc' }
+    });
+    res.json({ success: true, data: backupEmails });
+  } catch (error) {
+    console.error('Fetch backup emails error:', error);
+    res.status(500).json({ error: 'Failed to fetch backup emails' });
+  }
+});
+
+// POST /users/backup-email/send-code - send verification code to provided email
+router.post('/backup-email/send-code', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      res.status(400).json({ error: 'Email is required' });
       return;
     }
 
     // Basic email validation
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(backupEmail)) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       res.status(400).json({ error: 'Invalid email format' });
       return;
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) {
-      res.status(404).json({ error: 'User not found' });
+    // Prevent adding the env admin email
+    if (isEnvBackupEmail(email)) {
+      res.status(400).json({ error: 'This email cannot be added as a backup email.' });
       return;
     }
 
-    // Generate 6-digit verification code
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    // Store as temp update (not verified yet)
-    await prisma.user.update({
-      where: { id: req.user!.id },
-      data: {
-        backupEmail,
-        backupEmailVerified: false,
+    const userId = req.user!.id;
+
+    // Check if already exists
+    const existing = await prisma.backupEmail.findUnique({
+      where: {
+        userId_email: { userId, email }
       }
     });
 
-    const emailSent = await sendVerificationCodeEmail(backupEmail, verificationCode);
+    if (existing && existing.verified) {
+      res.status(409).json({ error: 'This email is already verified and added.' });
+      return;
+    }
+
+    // Generate 6-digit code and expiration (10 minutes)
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+    if (existing) {
+      // Resend code for unverified entry
+      await prisma.backupEmail.update({
+        where: { id: existing.id },
+        data: {
+          verificationCode,
+          codeExpiresAt,
+        }
+      });
+    } else {
+      // Create new unverified entry
+      await prisma.backupEmail.create({
+        data: {
+          userId,
+          email,
+          verified: false,
+          verificationCode,
+          codeExpiresAt,
+        }
+      });
+    }
+
+    const emailSent = await sendVerificationCodeEmail(email, verificationCode);
 
     await logAudit({
-      userId: req.user!.id,
+      userId,
       action: 'UPDATE',
       resourceType: 'USER',
-      resourceId: user.id,
+      resourceId: userId,
       ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
-      details: { action: 'SET_BACKUP_EMAIL', backupEmail, emailSent }
+      details: { action: 'SEND_BACKUP_EMAIL_VERIFICATION', email }
     });
+
+    // In production never expose the code; in dev we can show it for convenience
+    const showCode = process.env.NODE_ENV !== 'production' ? verificationCode : undefined;
 
     res.json({
       success: true,
       message: emailSent
-        ? 'Backup email set. Verification code sent to your email.'
-        : 'Backup email set, but verification email could not be delivered. Use the code below.',
-      verificationCode: emailSent ? (process.env.NODE_ENV === 'production' ? undefined : verificationCode) : verificationCode,
+        ? 'Verification code sent to your email.'
+        : 'Failed to send verification email. Please try again.',
       emailSent,
+      // Only include code if email failed or dev mode (useful for debugging)
+      verificationCode: emailSent ? showCode : verificationCode,
     });
   } catch (error) {
-    console.error('Set backup email error:', error);
-    res.status(500).json({ error: 'Failed to set backup email' });
+    console.error('Send backup email verification error:', error);
+    res.status(500).json({ error: 'Failed to send verification code' });
   }
 });
 
+// POST /users/backup-email/verify - verify the code for a specific email
 router.post('/backup-email/verify', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
   try {
-    const { verificationCode } = req.body;
+    const { email, code } = req.body;
 
-    if (!verificationCode) {
-      res.status(400).json({ error: 'Verification code is required' });
+    if (!email || !code) {
+      res.status(400).json({ error: 'Email and verification code are required.' });
       return;
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) {
-      res.status(404).json({ error: 'User not found' });
+    const userId = req.user!.id;
+
+    // Find the unverified entry for this user and email
+    const entry = await prisma.backupEmail.findFirst({
+      where: {
+        userId,
+        email,
+        verified: false,
+      }
+    });
+
+    if (!entry) {
+      res.status(404).json({ error: 'No pending verification for this email.' });
       return;
     }
 
-    if (!user.backupEmail) {
-      res.status(400).json({ error: 'No pending backup email to verify' });
+    // Check expiration
+    if (!entry.codeExpiresAt || entry.codeExpiresAt < new Date()) {
+      // Delete expired entry
+      await prisma.backupEmail.delete({ where: { id: entry.id } });
+      res.status(400).json({ error: 'Verification code expired. Please request a new one.' });
       return;
     }
 
-    // TODO: In production, verify the code against stored code with TTL
-    // For now, accept any 6-digit code
-    if (!/^\d{6}$/.test(verificationCode)) {
-      res.status(400).json({ error: 'Invalid verification code format' });
+    // Validate code
+    if (entry.verificationCode !== code) {
+      res.status(400).json({ error: 'Invalid verification code.' });
       return;
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: req.user!.id },
-      data: { backupEmailVerified: true }
+    // Mark as verified and clear code fields
+    const updatedEntry = await prisma.backupEmail.update({
+      where: { id: entry.id },
+      data: {
+        verified: true,
+        verificationCode: null,
+        codeExpiresAt: null,
+      }
     });
 
     await logAudit({
-      userId: req.user!.id,
+      userId,
       action: 'UPDATE',
       resourceType: 'USER',
-      resourceId: user.id,
+      resourceId: userId,
       ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
-      details: { action: 'VERIFY_BACKUP_EMAIL', backupEmail: updatedUser.backupEmail }
+      details: { action: 'VERIFY_BACKUP_EMAIL', email: updatedEntry.email }
     });
 
     res.json({
       success: true,
-      message: 'Backup email verified successfully',
-      backupEmail: updatedUser.backupEmail,
-      backupEmailVerified: updatedUser.backupEmailVerified
+      message: 'Backup email verified successfully.',
+      data: {
+        id: updatedEntry.id,
+        email: updatedEntry.email,
+        verified: updatedEntry.verified,
+      }
     });
   } catch (error) {
     console.error('Verify backup email error:', error);
     res.status(500).json({ error: 'Failed to verify backup email' });
+  }
+});
+
+// DELETE /users/backup-emails/:id - remove a backup email
+router.delete('/backup-emails/:id', authMiddleware, requireRole('OWNER'), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const entry = await prisma.backupEmail.findUnique({ where: { id } });
+
+    if (!entry) {
+      res.status(404).json({ error: 'Backup email not found' });
+      return;
+    }
+
+    if (entry.userId !== req.user!.id) {
+      res.status(403).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    await prisma.backupEmail.delete({ where: { id } });
+
+    await logAudit({
+      userId: req.user!.id,
+      action: 'DELETE',
+      resourceType: 'USER',
+      resourceId: req.user!.id,
+      ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+      details: { action: 'REMOVE_BACKUP_EMAIL', email: entry.email }
+    });
+
+    res.json({ success: true, message: 'Backup email removed.' });
+  } catch (error) {
+    console.error('Delete backup email error:', error);
+    res.status(500).json({ error: 'Failed to remove backup email' });
   }
 });
 

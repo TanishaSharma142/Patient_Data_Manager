@@ -16,14 +16,17 @@ IVF/
 │   │   │   ├── patientRoutes.ts     # Patient CRUD endpoints
 │   │   │   ├── panicWipeRoutes.ts   # Panic wipe endpoint
 │   │   │   └── auditRoutes.ts       # Audit logging endpoints
+|   |   |   |__ userRoutes.ts        
 │   │   ├── services/
 │   │   │   ├── patientService.ts    # Patient business logic
 │   │   │   ├── auditService.ts      # Audit logging service
 │   │   │   ├── emailService.ts      # Email backup service
 │   │   │   └── scheduledJobsService.ts # Cron jobs
+|   |   |   |__systemStateServices.ts
 │   │   └── utils/
 │   │       ├── encryption.ts        # AES-256-GCM encryption
 │   │       └── jwt.ts               # JWT utilities
+|   |       |__password.ts
 │   ├── prisma/
 │   │   ├── schema.prisma            # Database schema
 │   │   └── seed.ts                  # Database seeding
@@ -42,6 +45,11 @@ IVF/
     │   ├── services/
     │   │   ├── api_service.dart
     │   │   └── secure_storage_service.dart
+    │   │   └── secure_storage_web.dart
+    │   │   └── secure_storage_stub.dart
+    |   |   |__report_services.dart
+    |   |   |__report_download_stub.dart
+    |   |   |__report_download_web.dart
     │   ├── screens/
     │   │   ├── login_screen.dart
     │   │   ├── patient_list_screen.dart
@@ -49,6 +57,8 @@ IVF/
     │   │   ├── add_patient_screen.dart
     │   │   ├── panic_wipe_screen.dart
     │   │   └── activity_screen.dart
+    |   |   |__change_password_screen.dart
+    |   |   |__staff_management_screen.dart
     │   └── widgets/
     └── pubspec.yaml
 ```
